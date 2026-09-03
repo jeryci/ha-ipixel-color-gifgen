@@ -320,19 +320,18 @@
             </p>
             <div class="ha-instructions-card">
               <h4>1. Install Integration</h4>
-              <p>In Home Assistant HACS → Custom repositories → Add: <code>https://github.com/cagcoach/ha-ipixel-color</code> (or your fork) as an Integration.</p>
+              <p>In Home Assistant HACS → Custom repositories → Add: <code>https://github.com/jeryci/ha-ipixel-color-gifgen</code> as an Integration.</p>
               <h4>2. Host this Tool inside Home Assistant</h4>
-              <p>Place this app directory into your HA <code>/config/www/matrix-resizer/</code> folder. You can then add it as a sidebar panel or iframe in your dashboard:</p>
+              <p>Place this app directory into your HA <code>/config/www/matrix-resizer/</code> folder.</p>
+              <h4>3. Add to Sidebar (Modern HA 2024.4+)</h4>
+              <p>Go to <strong>Settings</strong> → <strong>Dashboards</strong> → <strong>Add Dashboard</strong> → select <strong>Webpage</strong>:</p>
+              <ul style="margin-left: 1.2rem; color: var(--text-secondary); font-size: 0.76rem;">
+                <li><strong>Title:</strong> Matrix PixelForge</li>
+                <li><strong>Icon:</strong> <code>mdi:led-strip-variant</code></li>
+                <li><strong>URL:</strong> <code>/local/matrix-resizer/index.html</code></li>
+                <li><strong>Show in sidebar:</strong> ✅ Yes</li>
+              </ul>
             </div>
-            <div class="code-box-header">
-              <span>configuration.yaml (Home Assistant Sidebar Panel)</span>
-              <button class="btn-copy" id="btnCopyHaPanel">Copy Panel YAML</button>
-            </div>
-            <pre class="code-block"><code id="codeHaPanel">panel_iframe:
-  matrix_resizer:
-    title: "Matrix PixelForge"
-    icon: "mdi:led-strip-variant"
-    url: "/local/matrix-resizer/index.html"</code></pre>
             
             <div class="code-box-header">
               <span>Home Assistant Automation / Script (Text & Display Mode)</span>

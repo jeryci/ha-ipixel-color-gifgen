@@ -884,6 +884,7 @@ async function scanBleDevices() {
   try {
     // Scan for nearby BLE devices
     const res = await fetch(`${SERVER_URL}/api/ble/scan`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     btn.disabled = false;
     btn.textContent = '🔍 Scan Nearby';
@@ -966,6 +967,7 @@ async function sendCurrentToIpixel() {
     }
 
     status.textContent = 'Connecting via Bluetooth...';
+    // Send payload to backend
     const response = await fetch(`${SERVER_URL}/api/ipixel/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -976,8 +978,11 @@ async function sendCurrentToIpixel() {
         save_slot: parseInt(elements.saveSlotInput.value, 10) || 0
       })
     });
-
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
+
+
+
     btn.disabled = false;
     btn.textContent = '🚀 Send to iPIXEL Matrix (BLE)';
 

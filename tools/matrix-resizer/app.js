@@ -5,6 +5,9 @@
 
 // Application State
 const state = {
+  // Server URL for backend API (used when embedded in Home Assistant)
+  // Adjust if server runs on a different host or port.
+  SERVER_URL: 'http://localhost:8085',
   targetWidth: 64,
   targetHeight: 16,
   fitMode: 'cover', // 'cover', 'contain', 'stretch'
@@ -869,6 +872,8 @@ function updateCodeExport() {
 // ----------------------------------------------------
 
 async function scanBleDevices() {
+  const SERVER_URL = state.SERVER_URL;
+
   const btn = elements.btnScanBle;
   const list = elements.bleScanResults;
   btn.disabled = true;
@@ -877,7 +882,8 @@ async function scanBleDevices() {
   list.innerHTML = '<div style="color: var(--text-muted); font-size: 0.72rem; padding: 4px;">Scanning nearby Bluetooth devices (4s)...</div>';
 
   try {
-    const res = await fetch('/api/ble/scan');
+    // Scan for nearby BLE devices
+    const res = await fetch(`${SERVER_URL}/api/ble/scan`);
     const data = await res.json();
     btn.disabled = false;
     btn.textContent = '🔍 Scan Nearby';
@@ -908,6 +914,7 @@ async function scanBleDevices() {
 }
 
 async function sendCurrentToIpixel() {
+  const SERVER_URL = state.SERVER_URL;
   const addr = elements.bleAddressInput.value.trim();
   if (!addr) {
     alert('Please enter or scan for your iPIXEL Bluetooth address first.');
@@ -959,7 +966,7 @@ async function sendCurrentToIpixel() {
     }
 
     status.textContent = 'Connecting via Bluetooth...';
-    const response = await fetch('/api/ipixel/send', {
+    const response = await fetch(`${SERVER_URL}/api/ipixel/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

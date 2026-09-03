@@ -7,6 +7,7 @@ These displays have been recently available as B.K. Light LED Pixel Board from A
 
 ## Features
 
+- **LED Matrix PixelForge (GIF & Image Resizer Tool)**: Built-in companion tool to upload static images or animated GIFs, crop/dither/fit to 64x16 (or custom resolutions), simulate real LED matrix glow, and send directly via BLE or download.
 - **Multiple Display Modes**: Text Image, Native Text, Clock, GIF, and Rhythm modes
 - **RGB Color Support**: Separate text and background colors via RGB light entities
 - **Clock Display**: 9 different clock styles with automatic time synchronization

@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LED Matrix Image & GIF Resizer (64x16)</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand">
+        <div class="brand-icon">
+          <div class="matrix-led-badge">
+            <span></span><span></span><span></span>
+            <span></span><span></span><span></span>
+          </div>
+        </div>
+        <div>
+          <h1>LED Matrix PixelForge</h1>
+          <p class="tagline">Image & Animated GIF Resizer for Home Assistant, ESPHome & WLED</p>
+        </div>
+      </div>
+      <div class="header-badges">
+        <span class="badge active-badge" id="currentResBadge">64 × 16 px</span>
+        <span class="badge"><span class="status-dot"></span> Ready</span>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <main class="workspace">
+      <!-- Left Column: Source & Controls -->
+      <section class="panel control-panel">
+        <!-- Input Upload Section -->
+        <div class="control-group">
+          <div class="group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            1. Input Image or GIF
+          </div>
+          <div class="drop-zone" id="dropZone">
+            <input type="file" id="fileInput" accept="image/png, image/jpeg, image/gif, image/webp, image/bmp" class="file-input-hidden">
+            <div class="drop-zone-content">
+              <div class="upload-icon-pulse">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </div>
+              <p class="drop-text"><strong>Drag & Drop</strong> any image or animated GIF</p>
+              <p class="drop-subtext">or <button type="button" class="btn-browse" id="browseBtn">Browse File</button></p>
+            </div>
+          </div>
+
+          <!-- Quick Samples -->
+          <div class="sample-presets">
+            <span class="sample-label">Try sample:</span>
+            <button class="btn-chip" id="sampleHeart">Heart Pulse</button>
+            <button class="btn-chip" id="samplePacman">Pac-Man</button>
+            <button class="btn-chip" id="sampleCat">Pixel Cat</button>
+            <button class="btn-chip" id="sampleWeather">Sun & Cloud</button>
+          </div>
+        </div>
+
+        <!-- Target Resolution Section -->
+        <div class="control-group">
+          <div class="group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            2. Matrix Resolution
+          </div>
+          <div class="resolution-presets">
+            <button class="btn-preset active" data-w="64" data-h="16">64 × 16 (Standard)</button>
+            <button class="btn-preset" data-w="32" data-h="8">32 × 8</button>
+            <button class="btn-preset" data-w="32" data-h="16">32 × 16</button>
+            <button class="btn-preset" data-w="64" data-h="32">64 × 32</button>
+            <button class="btn-preset" data-w="64" data-h="64">64 × 64</button>
+            <button class="btn-preset" data-w="128" data-h="32">128 × 32</button>
+          </div>
+          <div class="custom-res-row">
+            <div class="input-field">
+              <label for="matrixWidth">Width</label>
+              <input type="number" id="matrixWidth" value="64" min="4" max="256" step="1">
+            </div>
+            <span class="res-times">×</span>
+            <div class="input-field">
+              <label for="matrixHeight">Height</label>
+              <input type="number" id="matrixHeight" value="16" min="4" max="256" step="1">
+            </div>
+            <button class="btn-secondary" id="applyCustomRes">Apply</button>
+          </div>
+        </div>
+
+        <!-- Scaling & Fitting Mode -->
+        <div class="control-group">
+          <div class="group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+            3. Fit & Scaling
+          </div>
+          <div class="fit-mode-selector">
+            <label class="radio-card">
+              <input type="radio" name="fitMode" value="cover" checked>
+              <span class="card-content">
+                <strong>Cover / Crop</strong>
+                <small>Fills panel, no bars</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="fitMode" value="contain">
+              <span class="card-content">
+                <strong>Letterbox</strong>
+                <small>Keep ratio, pad bars</small>
+              </span>
+            </label>
+            <label class="radio-card">
+              <input type="radio" name="fitMode" value="stretch">
+              <span class="card-content">
+                <strong>Stretch</strong>
+                <small>Distort to edges</small>
+              </span>
+            </label>
+          </div>
+
+          <div class="control-sliders">
+            <div class="slider-row">
+              <span class="slider-label">Pan Horizontal (X)</span>
+              <input type="range" id="panX" min="-100" max="100" value="0" class="styled-slider">
+              <span class="slider-val" id="panXVal">0%</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Pan Vertical (Y)</span>
+              <input type="range" id="panY" min="-100" max="100" value="0" class="styled-slider">
+              <span class="slider-val" id="panYVal">0%</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Zoom Scale</span>
+              <input type="range" id="zoomScale" min="50" max="300" value="100" class="styled-slider">
+              <span class="slider-val" id="zoomVal">100%</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Background Fill</span>
+              <input type="color" id="bgColor" value="#000000" class="color-picker">
+              <span class="slider-val" id="bgColorVal">#000000</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pixel Art & Color Tuning -->
+        <div class="control-group">
+          <div class="group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2"/><path d="M12 21v2"/><path d="M4.22 4.22l1.42 1.42"/><path d="M18.36 18.36l1.42 1.42"/><path d="M1 12h2"/><path d="M21 12h2"/><path d="M4.22 19.78l1.42-1.42"/><path d="M18.36 5.64l1.42-1.42"/></svg>
+            4. LED Matrix Color Tuning
+          </div>
+          <div class="control-sliders">
+            <div class="slider-row">
+              <span class="slider-label">Sampling</span>
+              <select id="samplingFilter" class="styled-select">
+                <option value="nearest" selected>Pixel-Art (Nearest Neighbor)</option>
+                <option value="bilinear">Smooth Downscale (Bilinear)</option>
+              </select>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Brightness</span>
+              <input type="range" id="brightness" min="20" max="200" value="100" class="styled-slider">
+              <span class="slider-val" id="brightVal">100%</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Contrast</span>
+              <input type="range" id="contrast" min="50" max="250" value="110" class="styled-slider">
+              <span class="slider-val" id="contrastVal">110%</span>
+            </div>
+            <div class="slider-row">
+              <span class="slider-label">Color Dithering</span>
+              <select id="ditherMode" class="styled-select">
+                <option value="none">None (Full 24-bit RGB)</option>
+                <option value="floyd">Floyd-Steinberg (RGB565 matrix)</option>
+                <option value="bayer">Ordered Matrix (Bayer)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Animation Controls (if GIF) -->
+        <div class="control-group" id="animControlGroup">
+          <div class="group-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+            5. Animation Timeline
+          </div>
+          <div class="anim-status-bar">
+            <span id="frameCountText">Frames: 1</span>
+            <span id="frameDelayText">Speed: 1.0x</span>
+          </div>
+          <div class="anim-buttons">
+            <button class="btn-icon" id="btnPrevFrame" title="Previous Frame">⏮</button>
+            <button class="btn-action" id="btnPlayPause">⏸ Pause</button>
+            <button class="btn-icon" id="btnNextFrame" title="Next Frame">⏭</button>
+            <div class="playback-speed">
+              <label>Speed</label>
+              <select id="speedMultiplier" class="styled-select-sm">
+                <option value="0.5">0.5×</option>
+                <option value="0.75">0.75×</option>
+                <option value="1.0" selected>1.0×</option>
+                <option value="1.25">1.25×</option>
+                <option value="1.5">1.5×</option>
+                <option value="2.0">2.0×</option>
+              </select>
+            </div>
+          </div>
+          <div class="timeline-slider-row">
+            <input type="range" id="frameScrubber" min="0" max="0" value="0" class="styled-slider">
+            <span class="slider-val" id="currentFrameLabel">1/1</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: Live Matrix Preview & Export -->
+      <section class="panel preview-panel">
+        <div class="preview-header">
+          <div class="preview-title-row">
+            <h2>Live 64×16 Matrix Simulator</h2>
+            <div class="sim-view-options">
+              <button class="btn-toggle active" id="toggleLedGrid">LED Grid Glow</button>
+              <button class="btn-toggle" id="toggleExactPixels">Raw Pixels</button>
+              <button class="btn-toggle" id="toggleOriginal">Compare Original</button>
+            </div>
+          </div>
+          <p class="preview-sub">Simulating real WS2812B / HUB75 LED diode pitch and diffusion glow.</p>
+        </div>
+
+        <!-- Simulation Stage -->
+        <div class="matrix-stage-container" id="matrixContainer">
+          <div class="matrix-bezel">
+            <!-- Simulated LED Canvas -->
+            <canvas id="matrixCanvas" class="matrix-canvas"></canvas>
+            <!-- Native Raw Pixel Canvas (hidden or toggled) -->
+            <canvas id="rawCanvas" class="raw-canvas" style="display:none;"></canvas>
+            <!-- Original Image Comparison overlay (hidden by default) -->
+            <img id="originalPreview" class="original-preview" alt="Original" style="display:none;">
+          </div>
+          <div class="stage-info-bar">
+            <span>Dimensions: <strong id="infoDimensions">64 × 16</strong> pixels</span>
+            <span>Total LEDs: <strong id="infoTotalLeds">1024</strong> diodes</span>
+            <span>Aspect Ratio: <strong id="infoRatio">4:1</strong></span>
+          </div>
+        </div>
+
+        <!-- Export & Integration Section -->
+        <div class="export-section">
+          <div class="tabs-header">
+            <button class="tab-btn active" data-tab="tab-download">💾 Download Files</button>
+            <button class="tab-btn" data-tab="tab-ipixel">📡 Send to iPIXEL Matrix</button>
+            <button class="tab-btn" data-tab="tab-ha">🏠 Home Assistant Integration</button>
+            <button class="tab-btn" data-tab="tab-esphome">⚡ ESPHome & C Array</button>
+          </div>
+
+          <div class="tab-content active" id="tab-download">
+            <div class="download-action-cards">
+              <div class="download-card">
+                <div class="card-icon">🎞️</div>
+                <div class="card-text">
+                  <h3>Animated GIF (Matrix native)</h3>
+                  <p>Preserves all frames and timings exactly at 64×16 resolution.</p>
+                </div>
+                <button class="btn-primary" id="btnDownloadGif">Generate & Download GIF</button>
+              </div>
+
+              <div class="download-card">
+                <div class="card-icon">🖼️</div>
+                <div class="card-text">
+                  <h3>Static PNG (Current Frame)</h3>
+                  <p>Save crisp, pixel-perfect PNG for icons, alerts, or badges.</p>
+                </div>
+                <div class="btn-group">
+                  <button class="btn-secondary" id="btnDownloadPng1x">1× Native PNG</button>
+                  <button class="btn-secondary" id="btnDownloadPngScale">16× Upscaled PNG</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Direct iPIXEL Matrix BLE Tab -->
+          <div class="tab-content" id="tab-ipixel">
+            <p class="tab-description">
+              Directly flash or stream your resized <strong>64×16 image or animated GIF</strong> to your <strong>iPIXEL Color LED matrix</strong> via Bluetooth Low Energy (using <code>pypixelcolor</code> protocol):
+            </p>
+            <div class="ipixel-control-box">
+              <div class="ipixel-row">
+                <div class="input-field" style="flex: 2;">
+                  <label for="bleAddressInput">Bluetooth MAC Address / UUID</label>
+                  <div class="input-with-action">
+                    <input type="text" id="bleAddressInput" placeholder="e.g. 1D:6B:5E:B5:A5:54 or LED_BLE_XXXX" value="">
+                    <button class="btn-secondary" id="btnScanBle">🔍 Scan Nearby</button>
+                  </div>
+                </div>
+                <div class="input-field" style="flex: 1;">
+                  <label for="saveSlotInput">Memory Slot (0 = Preview only)</label>
+                  <select id="saveSlotInput" class="styled-select-sm">
+                    <option value="0" selected>0 (Live Preview)</option>
+                    <option value="1">Slot 1 (Permanent)</option>
+                    <option value="2">Slot 2 (Permanent)</option>
+                    <option value="3">Slot 3 (Permanent)</option>
+                  </select>
+                </div>
+              </div>
+              <div id="bleScanResults" class="ble-scan-results" style="display:none;"></div>
+              <div class="ipixel-actions">
+                <button class="btn-primary" id="btnSendToIpixel">
+                  🚀 Send to iPIXEL Matrix (BLE)
+                </button>
+                <span id="ipixelStatusText" class="status-msg"></span>
+              </div>
+            </div>
+            <div class="ha-tip">
+              ⚠️ <strong>BLE Connection Notice:</strong> iPIXEL matrices only allow one active Bluetooth connection at a time. Make sure the official smartphone app is closed when sending from here or Home Assistant!
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-ha">
+            <p class="tab-description">
+              How to use this with the <strong>ha-ipixel-color</strong> integration in Home Assistant:
+            </p>
+            <div class="ha-instructions-card">
+              <h4>1. Install Integration</h4>
+              <p>In Home Assistant HACS → Custom repositories → Add: <code>https://github.com/cagcoach/ha-ipixel-color</code> (or your fork) as an Integration.</p>
+              <h4>2. Host this Tool inside Home Assistant</h4>
+              <p>Place this app directory into your HA <code>/config/www/matrix-resizer/</code> folder. You can then add it as a sidebar panel or iframe in your dashboard:</p>
+            </div>
+            <div class="code-box-header">
+              <span>configuration.yaml (Home Assistant Sidebar Panel)</span>
+              <button class="btn-copy" id="btnCopyHaPanel">Copy Panel YAML</button>
+            </div>
+            <pre class="code-block"><code id="codeHaPanel">panel_iframe:
+  matrix_resizer:
+    title: "Matrix PixelForge"
+    icon: "mdi:led-strip-variant"
+    url: "/local/matrix-resizer/index.html"</code></pre>
+            
+            <div class="code-box-header">
+              <span>Home Assistant Automation / Script (Text & Display Mode)</span>
+              <button class="btn-copy" id="btnCopyHa">Copy Automation YAML</button>
+            </div>
+            <pre class="code-block"><code id="codeHaYaml"># Home Assistant iPIXEL Color Control
+service: ipixel_color.display_text
+target:
+  entity_id: text.ipixel_display
+data:
+  text: "{{ states('sensor.temperature') }}°C"
+  effect: "static"
+            <div class="ha-tip">
+              💡 <strong>Tip:</strong> Copy the generated 64x16 GIF directly to your Home Assistant <code>/config/www/matrix/</code> folder to display it on any dashboard card or stream it to your LED matrix.
+            </div>
+          </div>
+
+          <div class="tab-content" id="tab-esphome">
+            <p class="tab-description">
+              C/C++ array export in 16-bit <strong>RGB565</strong> or 24-bit <strong>RGB888</strong> format, ready for ESPHome or FastLED / NeoMatrix sketches:
+            </p>
+            <div class="export-options-bar">
+              <label>Format:
+                <select id="codeArrayFormat" class="styled-select-sm">
+                  <option value="rgb565">RGB565 (uint16_t[] PROGMEM)</option>
+                  <option value="rgb888">RGB888 (uint8_t[] R,G,B)</option>
+                </select>
+              </label>
+              <button class="btn-copy" id="btnCopyCode">Copy Code</button>
+            </div>
+            <pre class="code-block"><code id="codeArrayContent">// Click generate to output C array...</code></pre>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast">Copied to clipboard!</div>
+
+  <!-- Scripts -->
+  <script src="omggif.js"></script>
+  <script src="gifshot.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

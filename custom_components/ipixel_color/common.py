@@ -268,6 +268,17 @@ async def _update_text_mode(hass: HomeAssistant, device_name: str, api, text: st
                 _LOGGER.warning("Line spacing %d too large; using MAX_LINE_SPACING %d.", line_spacing, MAX_LINE_SPACING)
                 line_spacing = MAX_LINE_SPACING
 
+        # Store the last command parameters for debugging
+        hass.data.setdefault(DOMAIN, {})['last_message'] = {
+            "text": processed_text,
+            "antialias": antialias,
+            "font_size": font_size,
+            "font_name": font_name,
+            "line_spacing": line_spacing,
+            "text_color": text_color,
+            "bg_color": bg_color,
+        }
+
         # Send text to display with current (validated) settings
         success = await api.display_text(processed_text, antialias, font_size, font_name, line_spacing, text_color, bg_color)
         

@@ -158,6 +158,7 @@ The integration includes a built-in Lovelace card for visual control. After inst
 
 ```yaml
 resources:
+  # Use the integration-provided path (served by the component, not /local/)
   - url: /ipixel_color/ipixel-display-card.js
     type: module
 ```

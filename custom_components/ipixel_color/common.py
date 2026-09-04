@@ -129,8 +129,10 @@ async def update_ipixel_display(hass: HomeAssistant, device_name: str, api, text
 
         # Route to appropriate mode handler
         if mode == MODE_TEXT_IMAGE:
+            # Animated text (or rainbow effect)
             return await _update_textimage_mode(hass, device_name, api, text)
         elif mode == MODE_TEXT:
+            # Static text – no animation or rainbow effect
             return await _update_text_mode(hass, device_name, api, text)
         elif mode == MODE_CLOCK:
             return await _update_clock_mode(hass, device_name, api)
@@ -147,7 +149,63 @@ async def update_ipixel_display(hass: HomeAssistant, device_name: str, api, text
         return False
 
 
-async def _update_textimage_mode(hass: HomeAssistant, device_name: str, api, text: str = None) -> bool:
+async def _update_text_mode(hass: HomeAssistant, device_name: str, api, text: str = None) -> bool:
+    """Update display in static text mode (no animation)."""
+    try:
+        # Reuse the same logic as textimage but skip animation/rainbow handling
+        if text is None:
+            text_entity_id = get_entity_id_by_unique_id(hass, api._address, "text_display", "text")
+            text_state = hass.states.get(text_entity_id) if text_entity_id else None
+            if not text_state or text_state.state in ("unknown", "unavailable", ""):
+                _LOGGER.warning("No text to display - skipping update")
+                return False
+            text = text_state.state
+
+        # Get current settings
+        font_name = await _get_entity_setting(hass, device_name, "select", "font_select", str, api._address)
+        font_size = await _get_entity_setting(hass, device_name, "number", "font_size", float, api._address)
+        line_spacing = await _get_entity_setting(hass, device_name, "number", "line_spacing", int, api._address)
+        antialias = await _get_entity_setting(hass, device_name, "switch", "antialiasing", bool, api._address)
+        text_color = get_color_from_light_entity(hass, api._address, "text_color", default="ffffff")
+        bg_color = get_color_from_light_entity(hass, api._address, "background_color", default="000000")
+
+        if not api.is_connected:
+            _LOGGER.debug("Reconnecting to device for display update")
+            await api.connect()
+
+        template_resolved = await resolve_template_variables(hass, text)
+        processed_text = template_resolved.replace('\\\\n', '\\n').replace('\\\\t', '\\t')
+
+        # Validation (same as earlier)
+        if len(processed_text) > MAX_TEXT_LENGTH:
+            _LOGGER.warning("Text length (%d) exceeds MAX_TEXT_LENGTH (%d); truncating.", len(processed_text), MAX_TEXT_LENGTH)
+            processed_text = processed_text[:MAX_TEXT_LENGTH]
+        if font_size is not None:
+            if font_size < MIN_FONT_SIZE:
+                _LOGGER.warning("Font size %.1f too small; using MIN_FONT_SIZE %.1f.", font_size, MIN_FONT_SIZE)
+                font_size = MIN_FONT_SIZE
+            elif font_size > MAX_FONT_SIZE:
+                _LOGGER.warning("Font size %.1f too large; using MAX_FONT_SIZE %.1f.", font_size, MAX_FONT_SIZE)
+                font_size = MAX_FONT_SIZE
+        if line_spacing is not None:
+            if line_spacing < MIN_LINE_SPACING:
+                _LOGGER.warning("Line spacing %d too small; using MIN_LINE_SPACING %d.", line_spacing, MIN_LINE_SPACING)
+                line_spacing = MIN_LINE_SPACING
+            elif line_spacing > MAX_LINE_SPACING:
+                _LOGGER.warning("Line spacing %d too large; using MAX_LINE_SPACING %d.", line_spacing, MAX_LINE_SPACING)
+                line_spacing = MAX_LINE_SPACING
+
+        success = await api.display_text(processed_text, antialias, font_size, font_name, line_spacing, text_color, bg_color)
+        if success:
+            _LOGGER.info("Static text update successful: %s (font: %s, size: %s, antialias: %s, spacing: %spx, text: #%s, bg: #%s)",
+                       processed_text, font_name or "OpenSans-Light.ttf", f"{font_size:.1f}px" if font_size else "Auto",
+                       antialias, line_spacing, text_color, bg_color)
+        else:
+            _LOGGER.error("Static text update failed")
+        return success
+    except Exception as err:
+        _LOGGER.error("Error in static text mode update: %s", err)
+        return False
     """Update display in text/image mode.
 
     Args:

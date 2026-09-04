@@ -1,0 +1,29 @@
+{
+  "name": "PixelForge Server",
+  "version": "1.0",
+  "slug": "pixelforge",
+  "description": "Matrix‑resizer / PixelForge backend for iPIXEL BLE matrices.",
+  "arch": ["aarch64", "amd64", "i386"],
+  "startup": "services",
+  "boot": "auto",
+  "host_network": false,
+  "host_ipc": false,
+  "host_pid": false,
+  "privileged": ["NET_ADMIN"],
+  "options": {},
+  "schema": {},
+  "ports": {
+    "8085/tcp": 8085
+  },
+  "ingress": true,
+  "ingress_port": 8085,
+  "devices": [
+    "/dev/ttyUSB0:/dev/ttyUSB0",
+    "/dev/hci0:/dev/hci0"
+  ],
+  "map": [
+    "share:rw",
+    "ssl:rw"
+  ],
+  "environment": {}
+}

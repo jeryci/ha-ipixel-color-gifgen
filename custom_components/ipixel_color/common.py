@@ -14,6 +14,13 @@ def rgb_to_hex(r: int, g: int, b: int) -> str:
     """Convert RGB tuple to hex color string."""
     return f"{r:02x}{g:02x}{b:02x}"
 
+# Validation limits for textimage mode (prevent out‑of‑range values that can crash the matrix)
+MAX_TEXT_LENGTH = 100  # characters; adjust if your matrix supports more
+MIN_FONT_SIZE = 6.0    # points
+MAX_FONT_SIZE = 48.0   # points
+MIN_LINE_SPACING = 0   # pixels
+MAX_LINE_SPACING = 20  # pixels
+
 
 def get_color_from_light_entity(hass: HomeAssistant, address: str, entity_suffix: str, default: str | None = None) -> str | None:
     """Get hex color from a light entity.
@@ -184,7 +191,26 @@ async def _update_textimage_mode(hass: HomeAssistant, device_name: str, api, tex
         template_resolved = await resolve_template_variables(hass, text)
         processed_text = template_resolved.replace('\\n', '\n').replace('\\t', '\t')
 
-        # Send text to display with current settings
+        # Validate parameters before sending to the device
+        if len(processed_text) > MAX_TEXT_LENGTH:
+            _LOGGER.warning("Text length (%d) exceeds MAX_TEXT_LENGTH (%d); truncating.", len(processed_text), MAX_TEXT_LENGTH)
+            processed_text = processed_text[:MAX_TEXT_LENGTH]
+        if font_size is not None:
+            if font_size < MIN_FONT_SIZE:
+                _LOGGER.warning("Font size %.1f too small; using MIN_FONT_SIZE %.1f.", font_size, MIN_FONT_SIZE)
+                font_size = MIN_FONT_SIZE
+            elif font_size > MAX_FONT_SIZE:
+                _LOGGER.warning("Font size %.1f too large; using MAX_FONT_SIZE %.1f.", font_size, MAX_FONT_SIZE)
+                font_size = MAX_FONT_SIZE
+        if line_spacing is not None:
+            if line_spacing < MIN_LINE_SPACING:
+                _LOGGER.warning("Line spacing %d too small; using MIN_LINE_SPACING %d.", line_spacing, MIN_LINE_SPACING)
+                line_spacing = MIN_LINE_SPACING
+            elif line_spacing > MAX_LINE_SPACING:
+                _LOGGER.warning("Line spacing %d too large; using MAX_LINE_SPACING %d.", line_spacing, MAX_LINE_SPACING)
+                line_spacing = MAX_LINE_SPACING
+
+        # Send text to display with current (validated) settings
         success = await api.display_text(processed_text, antialias, font_size, font_name, line_spacing, text_color, bg_color)
         
         if success:
@@ -193,7 +219,7 @@ async def _update_textimage_mode(hass: HomeAssistant, device_name: str, api, tex
                        f"{font_size:.1f}px" if font_size else "Auto", antialias, line_spacing, text_color, bg_color)
         else:
             _LOGGER.error("Display update failed")
-            
+        
         return success
         
     except Exception as err:

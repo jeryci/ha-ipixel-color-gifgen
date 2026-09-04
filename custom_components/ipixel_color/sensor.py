@@ -48,8 +48,15 @@ SENSOR_DESCRIPTIONS = [
     ),
     SensorEntityDescription(
         key="wifi_version",
-        name="WiFi Version", 
+        name="WiFi Version",
         icon="mdi:wifi",
+        entity_category=EntityCategory.DIAGNOSTIC,
+    ),
+    # Debug sensor showing the last command payload sent to the device
+    SensorEntityDescription(
+        key="last_message",
+        name="Last Sent Command",
+        icon="mdi:message-text",
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
 ]
@@ -117,15 +124,23 @@ class iPIXELSensor(SensorEntity):
             if not self._api.is_connected:
                 self._available = False
                 return
-                
-            device_info = await self._api.get_device_info()
 
-            if device_info:
+            # For diagnostic sensors that come from device info
+            device_info = await self._api.get_device_info()
+            if device_info and self.entity_description.key in device_info:
                 self._attr_native_value = device_info.get(self.entity_description.key)
                 self._available = True
-            else:
-                self._available = False
-                
+                return
+
+            # Special handling for the debug sensor showing last sent command payload
+            if self.entity_description.key == "last_message":
+                self._attr_native_value = self.hass.data.get(DOMAIN, {}).get("last_message")
+                self._available = True
+                return
+
+            # If we reach here, no data available for this key
+            self._available = False
+
         except iPIXELConnectionError:
             _LOGGER.debug("Device not connected, marking sensor as unavailable")
             self._available = False

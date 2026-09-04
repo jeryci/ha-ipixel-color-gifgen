@@ -4,11 +4,11 @@ from . import DOMAIN
 from .api import iPIXELAPI
 from .schedule import iPIXELScheduleManager, ScheduleItem
 from .device.text_protocol import resolve_animation
-from homeassistant.const import ATTR_DEVICE_ID
+from homeassistant.const import ATTR_DEVICE_ID, ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 import logging
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,17 +91,31 @@ def rgb_to_hex(rgb) -> str:
 def async_get_entry_for_service_call(
     call: ServiceCall,
 ) -> tuple[dr.DeviceEntry, ConfigEntry]:
-    """Get the entry ID related to a service call (by device ID)."""
+    """Get the entry ID related to a service call (by device ID or entity ID)."""
     device_registry = dr.async_get(call.hass)
-    device_id = call.data[ATTR_DEVICE_ID][0] if isinstance(call.data[ATTR_DEVICE_ID], list) else call.data[ATTR_DEVICE_ID]
+    entity_registry = er.async_get(call.hass)
+    device_id = None
+
+    if ATTR_DEVICE_ID in call.data:
+        device_id_data = call.data[ATTR_DEVICE_ID]
+        device_id = device_id_data[0] if isinstance(device_id_data, list) else device_id_data
+    elif ATTR_ENTITY_ID in call.data:
+        entity_id = call.data[ATTR_ENTITY_ID]
+        if (entry := entity_registry.async_get(entity_id)):
+            device_id = entry.device_id
+    else:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="missing_device_or_entity_id",
+        )
 
     _LOGGER.debug("Looking up device_id %r for service call %r", device_id, call)
 
-    if (device_entry := device_registry.async_get(device_id)) is None:
+    if device_id is None or (device_entry := device_registry.async_get(device_id)) is None:
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="invalid_device_id",
-            translation_placeholders={"device_id": device_id},
+            translation_placeholders={"device_id": str(device_id)},
         )
 
     for entry_id in device_entry.config_entries:

@@ -43,33 +43,10 @@ PLATFORMS: list[Platform] = [
 FRONTEND_REGISTERED = False
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up the iPIXEL Color integration and remote logging."""
+    """Set up the iPIXEL Color integration."""
 
     # Register integration services
     async_setup_services(hass)
-
-    # ------------------------------------------------------------------
-    # Remote logging – send all log records from this integration to the
-    # external endpoint defined in `const.REMOTE_LOG_URL`.
-    # ------------------------------------------------------------------
-    try:
-        from . import const
-        import urllib.parse
-        from logging.handlers import HTTPHandler
-        remote_url = const.REMOTE_LOG_URL
-        if remote_url:
-            parsed = urllib.parse.urlparse(remote_url)
-            host = parsed.hostname
-            path = parsed.path
-            secure = parsed.scheme == "https"
-            handler = HTTPHandler(host, path, method="POST", secure=secure)
-            handler.setLevel(logging.INFO)
-            formatter = logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s')
-            handler.setFormatter(formatter)
-            _LOGGER.addHandler(handler)
-            _LOGGER.info("Remote logging handler installed for %s", remote_url)
-    except Exception as err:  # pragma: no‑cover
-        _LOGGER.warning("Failed to set up remote logging: %s", err)
 
     return True
 

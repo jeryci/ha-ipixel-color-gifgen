@@ -345,20 +345,24 @@ export class iPIXELControlsCard extends iPIXELCardBase {
     attachToggle(this.shadowRoot, 'toggle-24h', (v) => { this._is24Hour = v; });
     attachToggle(this.shadowRoot, 'toggle-date', (v) => { this._showDate = v; });
     this.shadowRoot.getElementById('animation-mode')?.addEventListener('change', (e) => {
-      // The animation travels with the text rather than as its own command
-      // (there is no set_animation_mode service), so apply it by re-sending
-      // the current text with the chosen device animation code.
-      this._animationMode = parseInt(e.target.value);
-      updateDisplayState({ animationMode: this._animationMode });
+        // Validate animation mode (exclude known problematic values 3 and 4)
+        const selected = parseInt(e.target.value);
+        const validAnimations = ANIMATION_MODES.map(a => a.value);
+        if (!validAnimations.includes(selected)) {
+          _LOGGER.warn(`Unsupported animation mode ${selected} – ignoring.`);
+          return;
+        }
+        this._animationMode = selected;
+        updateDisplayState({ animationMode: this._animationMode });
 
-      const text = getDisplayState().text;
-      if (text) {
-        this.callService('ipixel_color', 'display_text', {
-          text,
-          effect: this._animationMode,
-        });
-      }
-    });
+        const text = getDisplayState().text;
+        if (text) {
+          this.callService('ipixel_color', 'display_text', {
+            text,
+            effect: this._animationMode,
+          });
+        }
+      });
     this.shadowRoot.getElementById('orientation')?.addEventListener('change', (e) => {
       // There is no set_orientation service; orientation is a select entity
       // whose options are the rotation in degrees.
@@ -470,6 +474,12 @@ export class iPIXELControlsCard extends iPIXELCardBase {
   }
 
   _selectMode(mode) {
+    // Ensure the selected mode is one of the supported DISPLAY_MODES
+    const validModes = DISPLAY_MODES.map(m => m.value);
+    if (!validModes.includes(mode)) {
+      _LOGGER.warn(`Attempted to select unsupported mode "${mode}" – ignoring.`);
+      return;
+    }
     const modeEntity = this.getRelatedEntity('select', '_mode');
     if (modeEntity) {
       this._hass.callService('select', 'select_option', { entity_id: modeEntity.entity_id, option: mode });

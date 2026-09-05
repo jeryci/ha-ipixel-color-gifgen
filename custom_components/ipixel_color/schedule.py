@@ -557,7 +557,7 @@ class iPIXELScheduleManager:
             from .common import update_ipixel_display
 
             # Get device name for entity lookups
-            device_name = self._address.replace(":", "").lower()
+            device_name = self._address
 
             if item.mode == "clock":
                 await self._api.set_clock_mode(

@@ -206,6 +206,9 @@ async def _update_text_mode(hass: HomeAssistant, device_name: str, api, text: st
     except Exception as err:
         _LOGGER.error("Error in static text mode update: %s", err)
         return False
+
+
+async def _update_textimage_mode(hass: HomeAssistant, device_name: str, api, text: str = None) -> bool:
     """Update display in text/image mode.
 
     Args:

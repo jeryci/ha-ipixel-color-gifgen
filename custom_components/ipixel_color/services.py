@@ -428,8 +428,8 @@ async def handle_draw_visuals(call: ServiceCall) -> None:
 
         # Get device info for dimensions
         device_info = await api.get_device_info()
-        width = device_info.get("width" or 64)
-        height = device_info.get("height" or 16)
+        width = device_info.get("width", 64)
+        height = device_info.get("height", 16)
 
         # Get HTTP session for image loading
         session = async_get_clientsession(hass)

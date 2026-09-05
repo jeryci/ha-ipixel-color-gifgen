@@ -95,9 +95,9 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
 
     # Add the card as a Lovelace resource
     # This uses the built-in resource registration
-    hass.data.setdefault("lovelace_resources", set())
+    hass.data.setdefault("lovelace_resources", [])
     if card_url not in hass.data["lovelace_resources"]:
-        hass.data["lovelace_resources"].add(card_url)
+        hass.data["lovelace_resources"].append(card_url)
 
         # Fire event to notify frontend of new resource
         hass.bus.async_fire("lovelace_updated", {"url_path": card_url})

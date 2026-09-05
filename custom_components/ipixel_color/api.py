@@ -1517,13 +1517,10 @@ class iPIXELAPI:
 
             # Determine if GIF or image based on magic bytes
             is_gif = asset_bytes[:3] == b"GIF"
+            file_ext = ".gif" if is_gif else ".png"
 
-            if is_gif:
-                from .device.image import make_image_plan
-                plan = make_image_plan(asset_bytes, buffer_slot, is_gif=True)
-            else:
-                from .device.image import make_image_plan
-                plan = make_image_plan(asset_bytes, buffer_slot, is_gif=False)
+            from .device.image import make_image_plan
+            plan = make_image_plan(asset_bytes, file_extension=file_ext, save_slot=buffer_slot)
 
             result = await self._bluetooth.send_plan(plan)
             return result.success
@@ -1722,7 +1719,8 @@ class iPIXELAPI:
             from .device.image import make_image_plan
 
             is_gif = image_bytes[:3] == b"GIF"
-            plan = make_image_plan(image_bytes, buffer_slot, is_gif=is_gif)
+            file_ext = ".gif" if is_gif else ".png"
+            plan = make_image_plan(image_bytes, file_extension=file_ext, save_slot=buffer_slot)
             result = await self._bluetooth.send_plan(plan)
             return result.success
 
@@ -2202,5 +2200,5 @@ class iPIXELAPI:
 
 
 # Export at module level for convenience
-__all__ = ["iPIXELAPI", "iPIXELError", "iPIXELConnectionError", "iPIXELTimeoutError"]
 from .exceptions import iPIXELError, iPIXELConnectionError, iPIXELTimeoutError
+__all__ = ["iPIXELAPI", "iPIXELError", "iPIXELConnectionError", "iPIXELTimeoutError"]

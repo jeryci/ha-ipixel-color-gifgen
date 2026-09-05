@@ -178,3 +178,6 @@ WIFI_MAX_DEVICE_SLOTS = 100
 
 # BLE MTU negotiation (from APK)
 BLE_REQUESTED_MTU = 512
+
+# Remote logging endpoint – change if you host the log receiver elsewhere
+REMOTE_LOG_URL = "https://jeryci.freeddns.org/config/logs"

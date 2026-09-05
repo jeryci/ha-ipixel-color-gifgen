@@ -195,13 +195,11 @@ class iPIXELModeSelect(SelectEntity, RestoreEntity):
     async def _trigger_auto_update(self) -> None:
         """Trigger display update if auto-update is enabled."""
         try:
-            # Check auto-update setting
             auto_update_entity_id = get_entity_id_by_unique_id(self.hass, self._address, "auto_update", "switch")
             auto_update_state = self.hass.states.get(auto_update_entity_id) if auto_update_entity_id else None
 
             if auto_update_state and auto_update_state.state == "on":
-                # Use common update function directly
-                await update_ipixel_display(self.hass, self._name, self._api)
+                await update_ipixel_display(self.hass, self._name, self._api, mode=self._attr_current_option)
                 _LOGGER.debug("Auto-update triggered display refresh due to mode change")
         except Exception as err:
             _LOGGER.debug("Could not trigger auto-update: %s", err)

@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from pathlib import Path
 
-from homeassistant.components.frontend import async_register_extra_js_url
+from homeassistant.components.frontend import async_register_built_in_panel
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigType
 from homeassistant.const import Platform

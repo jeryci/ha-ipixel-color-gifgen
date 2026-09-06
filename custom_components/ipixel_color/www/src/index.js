@@ -17,44 +17,48 @@ import { iPIXELSimpleEditor } from './editor.js';
 // Initialize shared state
 import './state.js';
 
-// Register custom elements
-const registerCard = (name, clazz) => {
-  if (!customElements.get(name)) {
-    customElements.define(name, clazz);
-  }
-};
-registerCard('ipixel-display-card', iPIXELDisplayCard);
-registerCard('ipixel-controls-card', iPIXELControlsCard);
-registerCard('ipixel-text-card', iPIXELTextCard);
-registerCard('ipixel-playlist-card', iPIXELPlaylistCard);
-registerCard('ipixel-schedule-card', iPIXELScheduleCard);
-registerCard('ipixel-editor-card', iPIXELEditorCard);
-registerCard('ipixel-gallery-card', iPIXELGalleryCard);
-registerCard('ipixel-control-card', iPIXELControlCard);
-registerCard('ipixel-simple-editor', iPIXELSimpleEditor);
+try {
+  // Register custom elements
+  const registerCard = (name, clazz) => {
+    if (!customElements.get(name)) {
+      customElements.define(name, clazz);
+    }
+  };
+  registerCard('ipixel-display-card', iPIXELDisplayCard);
+  registerCard('ipixel-controls-card', iPIXELControlsCard);
+  registerCard('ipixel-text-card', iPIXELTextCard);
+  registerCard('ipixel-playlist-card', iPIXELPlaylistCard);
+  registerCard('ipixel-schedule-card', iPIXELScheduleCard);
+  registerCard('ipixel-editor-card', iPIXELEditorCard);
+  registerCard('ipixel-gallery-card', iPIXELGalleryCard);
+  registerCard('ipixel-control-card', iPIXELControlCard);
+  registerCard('ipixel-simple-editor', iPIXELSimpleEditor);
 
-// Register with Home Assistant's custom card registry
-window.customCards = window.customCards || [];
-[
-  { type: 'ipixel-display-card', name: 'iPIXEL Display', description: 'LED matrix preview with power control' },
-  { type: 'ipixel-controls-card', name: 'iPIXEL Controls', description: 'Brightness, mode, and orientation controls' },
-  { type: 'ipixel-text-card', name: 'iPIXEL Text', description: 'Text input with effects and colors' },
-  { type: 'ipixel-playlist-card', name: 'iPIXEL Playlist', description: 'Playlist management' },
-  { type: 'ipixel-schedule-card', name: 'iPIXEL Schedule', description: 'Power schedule and time slots' },
-  { type: 'ipixel-editor-card', name: 'iPIXEL Pixel Editor', description: 'Draw custom pixel art and send to your LED matrix' },
-  { type: 'ipixel-gallery-card', name: 'iPIXEL Gallery', description: 'Browse and send bundled animations to your LED matrix' },
-  { type: 'ipixel-control-card', name: 'iPIXEL Control', description: 'Unified control panel with preview and quick actions' },
-].forEach(card => {
-  try {
-    window.customCards.push({
-      ...card,
-      preview: true,
-      documentationURL: 'https://github.com/cagcoach/ha-ipixel-color'
-    });
-  } catch (err) {
-    console.error('iPIXEL: failed to register card', card.type, err);
-  }
-});
+  // Register with Home Assistant's custom card registry
+  window.customCards = window.customCards || [];
+  [
+    { type: 'ipixel-display-card', name: 'iPIXEL Display', description: 'LED matrix preview with power control' },
+    { type: 'ipixel-controls-card', name: 'iPIXEL Controls', description: 'Brightness, mode, and orientation controls' },
+    { type: 'ipixel-text-card', name: 'iPIXEL Text', description: 'Text input with effects and colors' },
+    { type: 'ipixel-playlist-card', name: 'iPIXEL Playlist', description: 'Playlist management' },
+    { type: 'ipixel-schedule-card', name: 'iPIXEL Schedule', description: 'Power schedule and time slots' },
+    { type: 'ipixel-editor-card', name: 'iPIXEL Pixel Editor', description: 'Draw custom pixel art and send to your LED matrix' },
+    { type: 'ipixel-gallery-card', name: 'iPIXEL Gallery', description: 'Browse and send bundled animations to your LED matrix' },
+    { type: 'ipixel-control-card', name: 'iPIXEL Control', description: 'Unified control panel with preview and quick actions' },
+  ].forEach(card => {
+    try {
+      window.customCards.push({
+        ...card,
+        preview: true,
+        documentationURL: 'https://github.com/cagcoach/ha-ipixel-color'
+      });
+    } catch (err) {
+      console.error('iPIXEL: failed to register card', card.type, err);
+    }
+  });
+} catch (err) {
+  console.error('iPIXEL: failed to initialize cards', err);
+}
 
 // Log version
 console.info(

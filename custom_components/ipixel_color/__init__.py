@@ -76,9 +76,14 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         await async_register_extra_js_url(hass, card_url, "ipixel")
     except ImportError:
         hass.data.setdefault("lovelace_resources", [])
+        # Remove any stale HACS-style resource pointing to the same card
+        hass.data["lovelace_resources"] = [
+            r for r in hass.data["lovelace_resources"]
+            if not (isinstance(r, dict) and r.get("url", "").endswith("/ipixel-display-card.js"))
+        ]
         if not any(r.get("url") == card_url for r in hass.data["lovelace_resources"]):
             hass.data["lovelace_resources"].append(resource)
-            hass.bus.async_fire("lovelace_updated")
+        hass.bus.async_fire("lovelace_updated")
 
     FRONTEND_REGISTERED = True
     _LOGGER.info("iPIXEL Display Card frontend registered at %s", card_url)

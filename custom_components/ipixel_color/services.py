@@ -105,10 +105,10 @@ def async_get_entry_for_service_call(
             device_id = entry.device_id
     else:
         _LOGGER.debug("No device_id or entity_id provided for service call %s, falling back to first available iPIXEL device", call)
-        for entry_id, entry in call.hass.config_entries.async_all(DOMAIN):
-            if entry.state is ConfigEntryState.LOADED:
+        for entry in call.hass.config_entries.entries.values():
+            if entry.domain == DOMAIN and entry.state is ConfigEntryState.LOADED:
                 device_entry = next(
-                    (d for d in device_registry.devices.values() if entry_id in d.config_entries),
+                    (d for d in device_registry.devices.values() if entry.entry_id in d.config_entries),
                     None,
                 )
                 if device_entry:

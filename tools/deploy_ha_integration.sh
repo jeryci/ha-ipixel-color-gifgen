@@ -5,6 +5,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 GITHUB_REPO="${GITHUB_REPO:-}"
 INTEGRATION_SRC=""
 INTEGRATION_DST="${HA_SSH_HOST:-user@ha-host}:/config/custom_components/ipixel_color"
+NO_RESTART="${NO_RESTART:-0}"
 
 if [[ -n "$GITHUB_REPO" ]]; then
   TMPDIR="$(mktemp -d)"
@@ -33,5 +34,10 @@ rsync -avz --delete \
 
 echo ""
 echo "Deployment complete."
-echo "Next: restart HA, or if you want to do it from here, uncomment the line below."
-# echo "ssh ${HA_SSH_HOST:-user@ha-host} 'ha core restart'"
+
+if [[ "$NO_RESTART" != "1" ]]; then
+  echo "Restarting Home Assistant ..."
+  ssh "${HA_SSH_HOST%%:*/}" "ha core restart"
+else
+  echo "Skipping HA restart because NO_RESTART=1."
+fi

@@ -18,15 +18,20 @@ import { iPIXELSimpleEditor } from './editor.js';
 import './state.js';
 
 // Register custom elements
-customElements.define('ipixel-display-card', iPIXELDisplayCard);
-customElements.define('ipixel-controls-card', iPIXELControlsCard);
-customElements.define('ipixel-text-card', iPIXELTextCard);
-customElements.define('ipixel-playlist-card', iPIXELPlaylistCard);
-customElements.define('ipixel-schedule-card', iPIXELScheduleCard);
-customElements.define('ipixel-editor-card', iPIXELEditorCard);
-customElements.define('ipixel-gallery-card', iPIXELGalleryCard);
-customElements.define('ipixel-control-card', iPIXELControlCard);
-customElements.define('ipixel-simple-editor', iPIXELSimpleEditor);
+const registerCard = (name, clazz) => {
+  if (!customElements.get(name)) {
+    customElements.define(name, clazz);
+  }
+};
+registerCard('ipixel-display-card', iPIXELDisplayCard);
+registerCard('ipixel-controls-card', iPIXELControlsCard);
+registerCard('ipixel-text-card', iPIXELTextCard);
+registerCard('ipixel-playlist-card', iPIXELPlaylistCard);
+registerCard('ipixel-schedule-card', iPIXELScheduleCard);
+registerCard('ipixel-editor-card', iPIXELEditorCard);
+registerCard('ipixel-gallery-card', iPIXELGalleryCard);
+registerCard('ipixel-control-card', iPIXELControlCard);
+registerCard('ipixel-simple-editor', iPIXELSimpleEditor);
 
 // Register with Home Assistant's custom card registry
 window.customCards = window.customCards || [];

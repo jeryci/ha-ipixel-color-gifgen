@@ -44,11 +44,17 @@ window.customCards = window.customCards || [];
   { type: 'ipixel-editor-card', name: 'iPIXEL Pixel Editor', description: 'Draw custom pixel art and send to your LED matrix' },
   { type: 'ipixel-gallery-card', name: 'iPIXEL Gallery', description: 'Browse and send bundled animations to your LED matrix' },
   { type: 'ipixel-control-card', name: 'iPIXEL Control', description: 'Unified control panel with preview and quick actions' },
-].forEach(card => window.customCards.push({
-  ...card,
-  preview: true,
-  documentationURL: 'https://github.com/cagcoach/ha-ipixel-color'
-}));
+].forEach(card => {
+  try {
+    window.customCards.push({
+      ...card,
+      preview: true,
+      documentationURL: 'https://github.com/cagcoach/ha-ipixel-color'
+    });
+  } catch (err) {
+    console.error('iPIXEL: failed to register card', card.type, err);
+  }
+});
 
 // Log version
 console.info(

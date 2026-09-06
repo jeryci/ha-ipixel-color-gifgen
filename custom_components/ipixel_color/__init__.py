@@ -7,7 +7,7 @@ from datetime import timedelta
 
 from pathlib import Path
 
-from homeassistant.components.frontend import async_register_built_in_panel
+from homeassistant.components.frontend import async_register_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigType
 from homeassistant.const import Platform
@@ -70,15 +70,7 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         StaticPathConfig(gallery_url, str(gallery_path), cache_headers=True),
     ])
 
-    # Add the card as a Lovelace resource
-    # This uses the built-in resource registration
-    hass.data.setdefault("lovelace_resources", [])
-    if card_url not in hass.data["lovelace_resources"]:
-        hass.data["lovelace_resources"].append(card_url)
-
-        # Fire event to notify frontend of new resource
-        hass.bus.async_fire("lovelace_updated", {"url_path": card_url})
-
+    await async_register_extra_js_url(hass, card_url, "ipixel")
     FRONTEND_REGISTERED = True
     _LOGGER.info("iPIXEL Display Card frontend registered at %s", card_url)
 

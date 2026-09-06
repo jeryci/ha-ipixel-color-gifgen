@@ -70,7 +70,15 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
         StaticPathConfig(gallery_url, str(gallery_path), cache_headers=True),
     ])
 
-    await async_register_extra_js_url(hass, card_url, "ipixel")
+    try:
+        from homeassistant.components.frontend import async_register_extra_js_url
+        await async_register_extra_js_url(hass, card_url, "ipixel")
+    except ImportError:
+        hass.data.setdefault("lovelace_resources", [])
+        if card_url not in hass.data["lovelace_resources"]:
+            hass.data["lovelace_resources"].append(card_url)
+            hass.bus.async_fire("lovelace_updated", {"url_path": card_url})
+
     FRONTEND_REGISTERED = True
     _LOGGER.info("iPIXEL Display Card frontend registered at %s", card_url)
 

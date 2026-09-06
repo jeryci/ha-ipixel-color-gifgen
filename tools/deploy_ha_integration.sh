@@ -2,8 +2,19 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-INTEGRATION_SRC="$REPO_DIR/custom_components/ipixel_color"
+GITHUB_REPO="${GITHUB_REPO:-}"
+INTEGRATION_SRC=""
 INTEGRATION_DST="${HA_SSH_HOST:-user@ha-host}:/config/custom_components/ipixel_color"
+
+if [[ -n "$GITHUB_REPO" ]]; then
+  TMPDIR="$(mktemp -d)"
+  trap 'rm -rf "$TMPDIR"' EXIT
+  echo "Cloning $GITHUB_REPO ..."
+  git clone --depth 1 "$GITHUB_REPO" "$TMPDIR"
+  INTEGRATION_SRC="$TMPDIR/custom_components/ipixel_color"
+else
+  INTEGRATION_SRC="$REPO_DIR/custom_components/ipixel_color"
+fi
 
 if [[ ! -d "$INTEGRATION_SRC" ]]; then
   echo "ERROR: source integration folder not found at $INTEGRATION_SRC"

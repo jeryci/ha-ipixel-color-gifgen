@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 GITHUB_REPO="${GITHUB_REPO:-}"
 INTEGRATION_SRC=""
-INTEGRATION_DST="${HA_SSH_HOST:-user@ha-host}:/config/custom_components/ipixel_color"
+INTEGRATION_DST="${HA_DST:-${HA_SSH_HOST:-user@ha-host}:/config/custom_components/ipixel_color}"
 NO_RESTART="${NO_RESTART:-0}"
 
 if [[ -n "$GITHUB_REPO" ]]; then
@@ -28,7 +28,6 @@ echo "  Dest:   $INTEGRATION_DST"
 
 REMOTE_HOST="${INTEGRATION_DST%%:*}"
 REMOTE_PATH="${INTEGRATION_DST#*:}"
-mkdir -p "$REMOTE_PATH"
 
 if ssh "$REMOTE_HOST" "command -v rsync" >/dev/null 2>&1; then
   echo "Using rsync..."
@@ -39,8 +38,8 @@ if ssh "$REMOTE_HOST" "command -v rsync" >/dev/null 2>&1; then
     "$INTEGRATION_SRC/" "$INTEGRATION_DST/"
 else
   echo "rsync not available on remote, falling back to scp..."
-  ssh "$REMOTE_HOST" "mkdir -p $REMOTE_PATH"
-  tar -C "$INTEGRATION_SRC" -cf - . | ssh "$REMOTE_HOST" "tar -C $REMOTE_PATH -xf -"
+  ssh "$REMOTE_HOST" "mkdir -p '$REMOTE_PATH'"
+  tar -C "$INTEGRATION_SRC" -cf - . | ssh "$REMOTE_HOST" "tar -C '$REMOTE_PATH' -xf -"
 fi
 
 echo ""
@@ -48,7 +47,7 @@ echo "Deployment complete."
 
 if [[ "$NO_RESTART" != "1" ]]; then
   echo "Restarting Home Assistant ..."
-  ssh "${HA_SSH_HOST%%:*/}" "ha core restart"
+  ssh "${REMOTE_HOST}" "ha core restart"
 else
   echo "Skipping HA restart because NO_RESTART=1."
 fi

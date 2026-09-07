@@ -1571,9 +1571,9 @@ class iPIXELAPI:
     async def display_ambient(self, effect: str = "rainbow", speed: int = 50) -> bool:
         """Display an ambient effect by sending a small animated GIF.
 
-        This generates a few rendered frames for the requested ambient effect
-        and pushes them through the normal image pipeline so the device shows
-        an actual animation instead of a static frame.
+        This generates rendered frames for the requested ambient effect
+        and pushes them through the normal image pipeline so the device
+        shows an actual animation.
         """
         try:
             device_info = await self._get_device_info()
@@ -1588,55 +1588,79 @@ class iPIXELAPI:
 
             effect_key = (effect or "rainbow").strip().lower()
             speed = max(1, min(int(speed), 100))
-            frame_delay = max(1, int((100 - speed) / 10) + 1)
+            frame_delay = max(1, int(100 - speed) * 2)
+            total_frames = 12
 
-            def render_frame(frame_index: int, total_frames: int):
+            import math
+            rng = __import__("random").Random(42)
+            particles = [
+                (rng.randint(0, width - 1), rng.randint(0, height - 1))
+                for _ in range(max(8, width * height // 8))
+            ]
+
+            def render_frame(frame_index: int):
                 img = Image.new("RGB", (width, height), (0, 0, 0))
                 draw = ImageDraw.Draw(img)
                 if effect_key == "rainbow":
+                    hue_base = frame_index / total_frames
                     for y in range(height):
-                        r = int(((y / max(height - 1, 1)) * 255 + frame_index * (255 / total_frames)) % 255)
-                        g = int(((y / max(height - 1, 1)) * 127) + 64)
-                        b = 255 - r
+                        hue = (hue_base + y / max(height - 1, 1) * 0.4) % 1.0
+                        r = int((math.sin(hue * math.pi * 2) + 1) * 127)
+                        g = int((math.sin(hue * math.pi * 2 + 2.094) + 1) * 127)
+                        b = int((math.sin(hue * math.pi * 2 + 4.188) + 1) * 127)
                         draw.line([(0, y), (width - 1, y)], fill=(r, g, b))
                 elif effect_key == "fire":
                     for y in range(height):
-                        shift = (frame_index * 4) % (height // 2)
-                        intensity = int(((y + shift) % height) / max(height - 1, 1) * 255)
-                        draw.line([(0, y), (width - 1, y)], fill=(intensity, int(intensity * 0.4), 0))
+                        t = (y + frame_index * 2) % height
+                        intensity = int((1 - t / max(height - 1, 1)) * 255)
+                        draw.line(
+                            [(0, y), (width - 1, y)],
+                            fill=(intensity, int(intensity * 0.35), 0),
+                        )
                 elif effect_key == "matrix":
-                    for y in range(height):
-                        shift = (frame_index * 3) % (height // 2)
-                        intensity = int(((y + shift) % height) / max(height - 1, 1) * 255)
-                        draw.line([(0, y), (width - 1, y)], fill=(0, intensity, 0))
+                    for x, y in particles:
+                        bright = (y + frame_index * 3) % height
+                        intensity = int((1 - bright / max(height - 1, 1)) * 255)
+                        draw.point((x, bright), fill=(0, intensity, 0))
                 elif effect_key == "plasma":
-                    import math
-                    offset = frame_index * 0.4
+                    offset = frame_index * 0.5
                     for y in range(height):
                         for x in range(width):
-                            r = int((math.sin(x * 0.1 + y * 0.1 + offset) + 1) * 127)
-                            g = int((math.sin(x * 0.2 - y * 0.1 + offset) + 1) * 127)
-                            b = int((math.sin(x * 0.1 + y * 0.2 + offset) + 1) * 127)
+                            v1 = math.sin(x * 0.1 + offset)
+                            v2 = math.sin(y * 0.1 + offset)
+                            v3 = math.sin((x + y) * 0.1 + offset)
+                            v = (v1 + v2 + v3 + 3) / 6
+                            r = int(v * 255)
+                            g = int(((math.sin(x * 0.2 + offset) + 1) / 2) * 255)
+                            b = int(((math.cos(y * 0.2 + offset) + 1) / 2) * 255)
                             img.putpixel((x, y), (r, g, b))
                 elif effect_key == "water":
                     for y in range(height):
-                        wave = int((math.sin(y * 0.3 + frame_index * 0.5) + 1) * 127) if False else 0
-                        intensity = int(64 + 128 * ((y + frame_index) % height) / max(height - 1, 1))
-                        draw.line([(0, y), (width - 1, y)], fill=(0, intensity, intensity))
+                        wave = math.sin(y * 0.4 + frame_index * 0.6) * 0.5 + 0.5
+                        intensity = int(40 + 215 * wave)
+                        draw.line(
+                            [(0, y), (width - 1, y)],
+                            fill=(0, intensity, intensity),
+                        )
+                elif effect_key == "stars":
+                    for x, y in particles:
+                        phase = (y * 0.3 + frame_index * 0.8) % (math.pi * 2)
+                        bright = int((math.sin(phase) * 0.5 + 0.5) * 255)
+                        draw.point((x, y), fill=(bright, bright, bright))
                 else:
                     for y in range(height):
                         intensity = int((y / max(height - 1, 1)) * 255)
                         draw.line([(0, y), (width - 1, y)], fill=(intensity, intensity, intensity))
                 return img
 
-            frames = [render_frame(i, 6) for i in range(6)]
+            frames = [render_frame(i) for i in range(total_frames)]
             buf = __import__("io").BytesIO()
             frames[0].save(
                 buf,
                 format="GIF",
                 save_all=True,
                 append_images=frames[1:],
-                duration=max(1, int(speed * 20)),
+                duration=frame_delay,
                 loop=0,
             )
             return await self.display_image_url_bytes(buf.getvalue(), 1)

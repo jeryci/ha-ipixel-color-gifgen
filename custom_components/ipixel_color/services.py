@@ -107,11 +107,9 @@ def async_get_entry_for_service_call(
         _LOGGER.debug("No device_id or entity_id provided for service call %s, falling back to first available iPIXEL device", call)
         domain_data = call.hass.data.get(DOMAIN, {})
         api_entries = {k: v for k, v in domain_data.items() if isinstance(v, iPIXELAPI)}
-        for device_entry in device_registry.devices.values():
-            for entry_id in device_entry.config_entries:
-                if entry_id in api_entries:
-                    entry_ref = type("_EntryRef", (), {"entry_id": entry_id})()
-                    return (device_entry, entry_ref)
+        for entry_id in api_entries:
+            for device_entry in device_registry.async_entries_for_config_entry(entry_id):
+                return (device_entry, type("_EntryRef", (), {"entry_id": entry_id})())
         raise ServiceValidationError(
             translation_domain=DOMAIN,
             translation_key="missing_device_or_entity_id",

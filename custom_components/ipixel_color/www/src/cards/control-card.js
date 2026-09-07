@@ -245,27 +245,6 @@ export class iPIXELControlCard extends iPIXELCardBase {
     this._callService('set_rhythm_mode_advanced', { style, levels });
   }
 
-  _applyGfx() {
-    const gfxJson = this.shadowRoot.getElementById('gfx-json')?.value || '';
-    let gfxData = null;
-    try { gfxData = JSON.parse(gfxJson); } catch { }
-    if (!gfxData) return;
-    updateDisplayState({ text: '', mode: 'gfx', gfxData });
-    this._callService('render_gfx', { data: gfxData });
-  }
-
-  _sendMulticolor() {
-    const text = this.shadowRoot.getElementById('multicolor-text')?.value || '';
-    const colors = (this.shadowRoot.getElementById('multicolor-colors')?.value || '')
-      .split(',').map(c => c.trim()).filter(Boolean);
-    if (!text || !colors.length) return;
-    updateDisplayState({ text, mode: 'multicolor', colors });
-    this._callService('display_multicolor_text', {
-      text,
-      colors: colors.map(c => this.hexToRgb(c)),
-    });
-  }
-
   _buildQuickActions() {
     const modes = [
       { id: 'text', label: 'Text', icon: 'T' },
@@ -405,24 +384,6 @@ export class iPIXELControlCard extends iPIXELCardBase {
     `;
   }
 
-  _buildGfxTab() {
-    return `
-      <div class="subsection">
-        <div class="subsection-title">GFX JSON Data</div>
-        <textarea class="gfx-textarea" id="gfx-json" placeholder='Enter GFX JSON data...'></textarea>
-        <button class="btn btn-primary" id="apply-gfx-btn" style="width:100%;margin-top:12px;">Render GFX</button>
-        <div class="subsection-title" style="margin-top:16px;">Per-Character Colors</div>
-        <div class="input-row">
-          <input type="text" class="text-input" id="multicolor-text" placeholder="Text (e.g., HELLO)">
-        </div>
-        <div class="input-row">
-          <input type="text" class="text-input" id="multicolor-colors" placeholder="Colors (e.g., #ff0000,#00ff00,#0000ff)">
-        </div>
-        <button class="btn btn-primary" id="apply-multicolor-btn" style="width:100%;margin-top:8px;">Send Multicolor Text</button>
-      </div>
-    `;
-  }
-
   render() {
     const testMode = this.isInTestMode();
     if (!this._hass && !testMode) return;
@@ -553,9 +514,6 @@ export class iPIXELControlCard extends iPIXELCardBase {
           <div class="tab-panel" ${this._activeTab !== 'rhythm' ? 'hidden' : ''}>
             ${this._buildRhythmTab()}
           </div>
-          <div class="tab-panel" ${this._activeTab !== 'gfx' ? 'hidden' : ''}>
-            ${this._buildGfxTab()}
-          </div>
         </div>
       </ha-card>`;
 
@@ -678,8 +636,6 @@ export class iPIXELControlCard extends iPIXELCardBase {
       });
     });
     $('apply-rhythm-btn')?.addEventListener('click', () => this._applyRhythm());
-    $('apply-gfx-btn')?.addEventListener('click', () => this._applyGfx());
-    $('apply-multicolor-btn')?.addEventListener('click', () => this._sendMulticolor());
     const ambientSpeed = $('ambient-speed');
     if (ambientSpeed) {
       ambientSpeed.addEventListener('input', (e) => {

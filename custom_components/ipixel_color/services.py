@@ -1072,10 +1072,6 @@ async def handle_display_native_text(call: ServiceCall) -> None:
     font_size = int(call.data.get("font_size", 16))
     buffer_slot = call.data.get("buffer_slot", 1)
 
-    if not text:
-        _LOGGER.warning("No text provided for display_native_text")
-        return
-
     try:
         fg = tuple(color_fg) if isinstance(color_fg, (list, tuple)) else (255, 255, 255)
         bg = tuple(color_bg) if isinstance(color_bg, (list, tuple)) else (0, 0, 0)

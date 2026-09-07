@@ -57,7 +57,7 @@ SERVICE_DISPLAY_IMAGE_RAW_RGB = "display_image_raw_rgb"
 SERVICE_DISPLAY_IMAGE_RAW_RGB_URL = "display_image_raw_rgb_url"
 SERVICE_DRAW_SOLID_COLOR = "draw_solid_color"
 # Visual rendering service (from UnexpectedMatrixPixels)
-SERVICE_DRAW_VISUALS = "draw_visuals"
+SERVICE_DISPLAY_AMBIENT = "display_ambient"
 # New features from APK reverse engineering
 SERVICE_SET_COUNTDOWN_TIMER = "set_countdown_timer"
 SERVICE_SET_SCOREBOARD = "set_scoreboard"
@@ -1064,6 +1064,21 @@ async def handle_display_local_gallery(call: ServiceCall) -> None:
     except Exception as err:
         _LOGGER.error("Error displaying local gallery asset: %s", err)
 
+async def handle_display_ambient(call: ServiceCall) -> None:
+    """Handle display_ambient service call."""
+    api = get_api(call)
+    effect = call.data.get("effect", "rainbow")
+    speed = int(call.data.get("speed", 50))
+
+    try:
+        success = await api.display_ambient(effect=effect, speed=speed)
+        if success:
+            _LOGGER.info("Ambient effect displayed: %s", effect)
+        else:
+            _LOGGER.error("Failed to display ambient effect")
+    except Exception as err:
+        _LOGGER.error("Error displaying ambient effect: %s", err)
+
 async def handle_display_native_text(call: ServiceCall) -> None:
     """Handle display_native_text service call."""
     api = get_api(call)
@@ -1433,6 +1448,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_GALLERY_ASSET, handle_display_gallery_asset)
     if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_LOCAL_GALLERY):
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_LOCAL_GALLERY, handle_display_local_gallery)
+    if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_AMBIENT):
+        hass.services.async_register(DOMAIN, SERVICE_DISPLAY_AMBIENT, handle_display_ambient)
     if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_NATIVE_TEXT):
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_NATIVE_TEXT, handle_display_native_text)
     if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_BORDER):

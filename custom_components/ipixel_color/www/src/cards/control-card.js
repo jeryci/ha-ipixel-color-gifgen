@@ -235,16 +235,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     const effect = this._selectedAmbient || 'rainbow';
     const speed = parseInt(this.shadowRoot.getElementById('ambient-speed')?.value || '50');
     updateDisplayState({ text: '', mode: 'ambient', effect, speed, fgColor: '#ffffff', bgColor: '#000000' });
-    const effectIndex = Object.keys(EFFECTS).indexOf(effect);
-    const rainbowMode = effectIndex >= 0 ? Math.min(effectIndex, 9) : 0;
-    this._callService('display_native_text', {
-      text: ' ',
-      effect: 0,
-      speed: speed,
-      color_fg: [255, 255, 255],
-      color_bg: [0, 0, 0],
-      rainbow_mode: rainbowMode,
-    });
+    this._callService('display_ambient', { effect, speed });
   }
 
   _applyRhythm() {
@@ -661,16 +652,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
           }
         } else if (mode === 'ambient') {
           this._selectedAmbient = 'rainbow';
-          const effectIndex = Object.keys(EFFECTS).indexOf('rainbow');
-          const rainbowMode = effectIndex >= 0 ? Math.min(effectIndex, 9) : 0;
-          this._callService('display_native_text', {
-            text: ' ',
-            effect: 0,
-            speed: 50,
-            color_fg: [255,255,255],
-            color_bg: [0,0,0],
-            rainbow_mode: rainbowMode,
-          });
+          this._callService('display_ambient', { effect: 'rainbow', speed: 50 });
         }
       });
     });

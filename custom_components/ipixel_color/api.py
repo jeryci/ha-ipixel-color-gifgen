@@ -1568,6 +1568,68 @@ class iPIXELAPI:
             _LOGGER.error("Error displaying local gallery asset: %s", err)
             return False
 
+    async def display_ambient(self, effect: str = "rainbow", speed: int = 50) -> bool:
+        """Display an ambient effect by sending a 1-frame rendered image.
+
+        This generates a small preview frame for the requested ambient effect
+        and pushes it through the normal image pipeline so the device shows
+        something visible instead of a black screen.
+        """
+        try:
+            device_info = await self._get_device_info()
+            width = getattr(device_info, "width", 64)
+            height = getattr(device_info, "height", 16)
+
+            try:
+                from PIL import Image, ImageDraw
+            except ImportError:
+                _LOGGER.error("PIL is required for ambient rendering")
+                return False
+
+            img = Image.new("RGB", (width, height), (0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            effect_key = (effect or "rainbow").strip().lower()
+            if effect_key == "rainbow":
+                for y in range(height):
+                    r = int((y / max(height - 1, 1)) * 255)
+                    g = int(((y / max(height - 1, 1)) * 127) + 64)
+                    b = 255 - r
+                    draw.line([(0, y), (width - 1, y)], fill=(r, g, b))
+            elif effect_key == "fire":
+                for y in range(height):
+                    intensity = int((y / max(height - 1, 1)) * 255)
+                    draw.line([(0, y), (width - 1, y)], fill=(intensity, int(intensity * 0.4), 0))
+            elif effect_key == "matrix":
+                for y in range(height):
+                    intensity = int((y / max(height - 1, 1)) * 255)
+                    draw.line([(0, y), (width - 1, y)], fill=(0, intensity, 0))
+            elif effect_key == "plasma":
+                import math
+                for y in range(height):
+                    for x in range(width):
+                        r = int((math.sin(x * 0.1 + y * 0.1) + 1) * 127)
+                        g = int((math.sin(x * 0.2 - y * 0.1) + 1) * 127)
+                        b = int((math.sin(x * 0.1 + y * 0.2) + 1) * 127)
+                        img.putpixel((x, y), (r, g, b))
+            else:
+                for y in range(height):
+                    intensity = int((y / max(height - 1, 1)) * 255)
+                    draw.line([(0, y), (width - 1, y)], fill=(intensity, intensity, intensity))
+
+            buf = __import__("io").BytesIO()
+            img.save(buf, format="PNG")
+            plan = make_image_plan(
+                image_bytes=buf.getvalue(),
+                file_extension=".png",
+                resize_method="crop",
+                device_info=device_info,
+            )
+            await self._bluetooth.send_plan(plan)
+            return True
+        except Exception as err:
+            _LOGGER.error("Error displaying ambient: %s", err)
+            return False
+
     async def display_native_text(
         self,
         text: str,

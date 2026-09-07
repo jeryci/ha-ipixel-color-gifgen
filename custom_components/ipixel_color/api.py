@@ -91,6 +91,7 @@ class iPIXELAPI:
             hass: Home Assistant instance
             address: Bluetooth MAC address
         """
+        self._hass = hass
         self._address = address
         self._bluetooth = BluetoothClient(hass, address)
         self._power_state = True  # Assume on until we check

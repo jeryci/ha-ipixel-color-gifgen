@@ -1081,8 +1081,9 @@ async def handle_display_native_text(call: ServiceCall) -> None:
         fg = tuple(color_fg) if isinstance(color_fg, (list, tuple)) else (255, 255, 255)
         bg = tuple(color_bg) if isinstance(color_bg, (list, tuple)) else (0, 0, 0)
 
+        display_text = text if text else " "
         success = await api.display_native_text(
-            text=text,
+            text=display_text,
             effect=effect,
             speed=speed,
             fg_color=fg,

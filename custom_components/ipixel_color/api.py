@@ -1569,11 +1569,11 @@ class iPIXELAPI:
             return False
 
     async def display_ambient(self, effect: str = "rainbow", speed: int = 50) -> bool:
-        """Display an ambient effect by sending a 1-frame rendered image.
+        """Display an ambient effect by sending a small animated GIF.
 
-        This generates a small preview frame for the requested ambient effect
-        and pushes it through the normal image pipeline so the device shows
-        something visible instead of a black screen.
+        This generates a few rendered frames for the requested ambient effect
+        and pushes them through the normal image pipeline so the device shows
+        an actual animation instead of a static frame.
         """
         try:
             device_info = await self._get_device_info()
@@ -1586,46 +1586,60 @@ class iPIXELAPI:
                 _LOGGER.error("PIL is required for ambient rendering")
                 return False
 
-            img = Image.new("RGB", (width, height), (0, 0, 0))
-            draw = ImageDraw.Draw(img)
             effect_key = (effect or "rainbow").strip().lower()
-            if effect_key == "rainbow":
-                for y in range(height):
-                    r = int((y / max(height - 1, 1)) * 255)
-                    g = int(((y / max(height - 1, 1)) * 127) + 64)
-                    b = 255 - r
-                    draw.line([(0, y), (width - 1, y)], fill=(r, g, b))
-            elif effect_key == "fire":
-                for y in range(height):
-                    intensity = int((y / max(height - 1, 1)) * 255)
-                    draw.line([(0, y), (width - 1, y)], fill=(intensity, int(intensity * 0.4), 0))
-            elif effect_key == "matrix":
-                for y in range(height):
-                    intensity = int((y / max(height - 1, 1)) * 255)
-                    draw.line([(0, y), (width - 1, y)], fill=(0, intensity, 0))
-            elif effect_key == "plasma":
-                import math
-                for y in range(height):
-                    for x in range(width):
-                        r = int((math.sin(x * 0.1 + y * 0.1) + 1) * 127)
-                        g = int((math.sin(x * 0.2 - y * 0.1) + 1) * 127)
-                        b = int((math.sin(x * 0.1 + y * 0.2) + 1) * 127)
-                        img.putpixel((x, y), (r, g, b))
-            else:
-                for y in range(height):
-                    intensity = int((y / max(height - 1, 1)) * 255)
-                    draw.line([(0, y), (width - 1, y)], fill=(intensity, intensity, intensity))
+            speed = max(1, min(int(speed), 100))
+            frame_delay = max(1, int((100 - speed) / 10) + 1)
 
+            def render_frame(frame_index: int, total_frames: int):
+                img = Image.new("RGB", (width, height), (0, 0, 0))
+                draw = ImageDraw.Draw(img)
+                if effect_key == "rainbow":
+                    for y in range(height):
+                        r = int(((y / max(height - 1, 1)) * 255 + frame_index * (255 / total_frames)) % 255)
+                        g = int(((y / max(height - 1, 1)) * 127) + 64)
+                        b = 255 - r
+                        draw.line([(0, y), (width - 1, y)], fill=(r, g, b))
+                elif effect_key == "fire":
+                    for y in range(height):
+                        shift = (frame_index * 4) % (height // 2)
+                        intensity = int(((y + shift) % height) / max(height - 1, 1) * 255)
+                        draw.line([(0, y), (width - 1, y)], fill=(intensity, int(intensity * 0.4), 0))
+                elif effect_key == "matrix":
+                    for y in range(height):
+                        shift = (frame_index * 3) % (height // 2)
+                        intensity = int(((y + shift) % height) / max(height - 1, 1) * 255)
+                        draw.line([(0, y), (width - 1, y)], fill=(0, intensity, 0))
+                elif effect_key == "plasma":
+                    import math
+                    offset = frame_index * 0.4
+                    for y in range(height):
+                        for x in range(width):
+                            r = int((math.sin(x * 0.1 + y * 0.1 + offset) + 1) * 127)
+                            g = int((math.sin(x * 0.2 - y * 0.1 + offset) + 1) * 127)
+                            b = int((math.sin(x * 0.1 + y * 0.2 + offset) + 1) * 127)
+                            img.putpixel((x, y), (r, g, b))
+                elif effect_key == "water":
+                    for y in range(height):
+                        wave = int((math.sin(y * 0.3 + frame_index * 0.5) + 1) * 127) if False else 0
+                        intensity = int(64 + 128 * ((y + frame_index) % height) / max(height - 1, 1))
+                        draw.line([(0, y), (width - 1, y)], fill=(0, intensity, intensity))
+                else:
+                    for y in range(height):
+                        intensity = int((y / max(height - 1, 1)) * 255)
+                        draw.line([(0, y), (width - 1, y)], fill=(intensity, intensity, intensity))
+                return img
+
+            frames = [render_frame(i, 6) for i in range(6)]
             buf = __import__("io").BytesIO()
-            img.save(buf, format="PNG")
-            plan = make_image_plan(
-                image_bytes=buf.getvalue(),
-                file_extension=".png",
-                resize_method="crop",
-                device_info=device_info,
+            frames[0].save(
+                buf,
+                format="GIF",
+                save_all=True,
+                append_images=frames[1:],
+                duration=max(1, int(speed * 20)),
+                loop=0,
             )
-            await self._bluetooth.send_plan(plan)
-            return True
+            return await self.display_image_url_bytes(buf.getvalue(), 1)
         except Exception as err:
             _LOGGER.error("Error displaying ambient: %s", err)
             return False

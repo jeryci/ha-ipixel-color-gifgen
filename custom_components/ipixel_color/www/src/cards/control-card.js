@@ -235,15 +235,15 @@ export class iPIXELControlCard extends iPIXELCardBase {
     const effect = this._selectedAmbient || 'rainbow';
     const speed = parseInt(this.shadowRoot.getElementById('ambient-speed')?.value || '50');
     updateDisplayState({ text: '', mode: 'ambient', effect, speed, fgColor: '#ffffff', bgColor: '#000000' });
+    const effectIndex = Object.keys(EFFECTS).indexOf(effect);
+    const rainbowMode = effectIndex >= 0 ? Math.min(effectIndex, 9) : 0;
     this._callService('display_native_text', {
       text: '',
-      effect: '0',
-      speed: speed.toString(),
+      effect: 0,
+      speed: speed,
       color_fg: [255, 255, 255],
       color_bg: [0, 0, 0],
-    });
-    this._callService('draw_visuals', {
-      elements: [{ type: 'ambient', effect, speed }],
+      rainbow_mode: rainbowMode,
     });
   }
 
@@ -617,8 +617,14 @@ export class iPIXELControlCard extends iPIXELCardBase {
         }
       }
     });
-    $('power-on-btn')?.addEventListener('click', () => this._callService('set_power', { power: true }));
-    $('power-off-btn')?.addEventListener('click', () => this._callService('set_power', { power: false }));
+    $('power-on-btn')?.addEventListener('click', () => {
+      const sw = this.getRelatedEntity('switch');
+      if (sw) this._hass.callService('switch', 'turn_on', { entity_id: sw.entity_id });
+    });
+    $('power-off-btn')?.addEventListener('click', () => {
+      const sw = this.getRelatedEntity('switch');
+      if (sw) this._hass.callService('switch', 'turn_off', { entity_id: sw.entity_id });
+    });
     $('update-btn')?.addEventListener('click', () => this._callService('update_display'));
     $('send-text-btn')?.addEventListener('click', () => this._sendText());
     $('control-speed')?.addEventListener('input', (e) => {
@@ -640,7 +646,10 @@ export class iPIXELControlCard extends iPIXELCardBase {
         const mode = btn.dataset.mode;
         updateDisplayState({ mode });
         if (mode === 'text') {
-          this._callService('set_mode', { mode: 'textimage' });
+          const modeEntity = this.getRelatedEntity('select', '_mode');
+          if (modeEntity) {
+            this._hass.callService('select', 'select_option', { entity_id: modeEntity.entity_id, option: 'textimage' });
+          }
         } else if (mode === 'clock') {
           this._callService('set_clock_mode', { style: 1, show_date: true, format_24: true });
         } else if (mode === 'gif') {
@@ -652,7 +661,16 @@ export class iPIXELControlCard extends iPIXELCardBase {
           }
         } else if (mode === 'ambient') {
           this._selectedAmbient = 'rainbow';
-          this._callService('display_native_text', { text: '', effect: '0', speed: '50', color_fg: [255,255,255], color_bg: [0,0,0] });
+          const effectIndex = Object.keys(EFFECTS).indexOf('rainbow');
+          const rainbowMode = effectIndex >= 0 ? Math.min(effectIndex, 9) : 0;
+          this._callService('display_native_text', {
+            text: '',
+            effect: 0,
+            speed: 50,
+            color_fg: [255,255,255],
+            color_bg: [0,0,0],
+            rainbow_mode: rainbowMode,
+          });
         }
       });
     });

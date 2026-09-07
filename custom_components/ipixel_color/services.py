@@ -165,9 +165,10 @@ async def handle_display_text(call: ServiceCall) -> None:
     color_bg = call.data.get("color_bg", [0, 0, 0])
     font = call.data.get("font", "CUSONG")
     matrix_height_str = call.data.get("matrix_height", None)
+    rainbow_mode = call.data.get("rainbow_mode", 0)
 
-    _LOGGER.debug("Received display_text service call: text=%r, effect=%r, speed=%d, color_fg=%r, color_bg=%r, font=%r, matrix_height=%r",
-                  text, effect, speed, color_fg, color_bg, font, matrix_height_str)
+    _LOGGER.debug("Received display_text service call: text=%r, effect=%r, speed=%d, color_fg=%r, color_bg=%r, font=%r, matrix_height=%r, rainbow_mode=%d",
+                  text, effect, speed, color_fg, color_bg, font, matrix_height_str, rainbow_mode)
 
     if not text:
         _LOGGER.warning("No text provided for display_text service")
@@ -193,11 +194,12 @@ async def handle_display_text(call: ServiceCall) -> None:
             font=font,
             animation=animation,
             speed=speed,
+            rainbow_mode=rainbow_mode,
             matrix_height=matrix_height
         )
 
         if success:
-            _LOGGER.info("Text displayed: '%s' (effect=%d, speed=%d, font=%s)", text, effect, speed, font)
+            _LOGGER.info("Text displayed: '%s' (effect=%d, speed=%d, font=%s, rainbow=%d)", text, effect, speed, font, rainbow_mode)
         else:
             _LOGGER.error("Failed to display text: '%s'", text)
     except Exception as err:

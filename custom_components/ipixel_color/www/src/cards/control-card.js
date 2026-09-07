@@ -657,7 +657,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
           if (gifUrl) {
             this._callService('display_image_url', { url: gifUrl });
           } else {
-            this._callService('display_local_gallery', { size: '64x64', filename: '64x64_0.gif', buffer_slot: 1 });
+            this._callService('display_local_gallery', { size: '64x64', filename: 'yk_anim_en_64x64_1.gif', buffer_slot: 1 });
           }
         } else if (mode === 'ambient') {
           this._selectedAmbient = 'rainbow';

@@ -58,6 +58,7 @@ SERVICE_DISPLAY_IMAGE_RAW_RGB_URL = "display_image_raw_rgb_url"
 SERVICE_DRAW_SOLID_COLOR = "draw_solid_color"
 # Visual rendering service (from UnexpectedMatrixPixels)
 SERVICE_DISPLAY_AMBIENT = "display_ambient"
+SERVICE_DRAW_VISUALS = "draw_visuals"
 # New features from APK reverse engineering
 SERVICE_SET_COUNTDOWN_TIMER = "set_countdown_timer"
 SERVICE_SET_SCOREBOARD = "set_scoreboard"
@@ -1425,6 +1426,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
     # Visual rendering service (from UnexpectedMatrixPixels)
     if not hass.services.has_service(DOMAIN, SERVICE_DRAW_VISUALS):
         hass.services.async_register(DOMAIN, SERVICE_DRAW_VISUALS, handle_draw_visuals)
+    if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_AMBIENT):
+        hass.services.async_register(DOMAIN, SERVICE_DISPLAY_AMBIENT, handle_display_ambient)
     # New features from APK reverse engineering
     if not hass.services.has_service(DOMAIN, SERVICE_SET_COUNTDOWN_TIMER):
         hass.services.async_register(DOMAIN, SERVICE_SET_COUNTDOWN_TIMER, handle_set_countdown_timer)

@@ -1619,9 +1619,11 @@ class iPIXELAPI:
                         )
                 elif effect_key == "matrix":
                     for x, y in particles:
-                        bright = (y + frame_index * 3) % height
-                        intensity = int((1 - bright / max(height - 1, 1)) * 255)
-                        draw.point((x, bright), fill=(0, intensity, 0))
+                        head = (y + frame_index * 4) % height
+                        tail = (head - 3) % height
+                        intensity = int((1 - (head / max(height - 1, 1))) * 255)
+                        draw.point((x, head), fill=(0, 255, 0))
+                        draw.point((x, tail), fill=(0, max(0, intensity // 4), 0))
                 elif effect_key == "plasma":
                     offset = frame_index * 0.5
                     for y in range(height):
@@ -1647,6 +1649,8 @@ class iPIXELAPI:
                         phase = (y * 0.3 + frame_index * 0.8) % (math.pi * 2)
                         bright = int((math.sin(phase) * 0.5 + 0.5) * 255)
                         draw.point((x, y), fill=(bright, bright, bright))
+                        if bright > 200:
+                            draw.point((x, (y - 1) % height), fill=(bright // 2, bright // 2, bright // 2))
                 else:
                     for y in range(height):
                         intensity = int((y / max(height - 1, 1)) * 255)
@@ -1824,7 +1828,14 @@ class iPIXELAPI:
 
             is_gif = image_bytes[:3] == b"GIF"
             file_ext = ".gif" if is_gif else ".png"
-            plan = make_image_plan(image_bytes, file_extension=file_ext, save_slot=buffer_slot)
+            device_info = await self._get_device_info()
+            plan = make_image_plan(
+                image_bytes,
+                file_extension=file_ext,
+                resize_method="crop",
+                device_info=device_info,
+                save_slot=buffer_slot,
+            )
             result = await self._bluetooth.send_plan(plan)
             return result.success
 

@@ -26,11 +26,22 @@ echo "Deploying iPIXEL integration to HA..."
 echo "  Source: $INTEGRATION_SRC"
 echo "  Dest:   $INTEGRATION_DST"
 
-rsync -avz --delete \
-  --exclude='.git' \
-  --exclude='*.pyc' \
-  --exclude='__pycache__' \
-  "$INTEGRATION_SRC/" "$INTEGRATION_DST/"
+REMOTE_HOST="${INTEGRATION_DST%%:*}"
+REMOTE_PATH="${INTEGRATION_DST#*:}"
+mkdir -p "$REMOTE_PATH"
+
+if ssh "$REMOTE_HOST" "command -v rsync" >/dev/null 2>&1; then
+  echo "Using rsync..."
+  rsync -avz --delete \
+    --exclude='.git' \
+    --exclude='*.pyc' \
+    --exclude='__pycache__' \
+    "$INTEGRATION_SRC/" "$INTEGRATION_DST/"
+else
+  echo "rsync not available on remote, falling back to scp..."
+  ssh "$REMOTE_HOST" "mkdir -p $REMOTE_PATH"
+  tar -C "$INTEGRATION_SRC" -cf - . | ssh "$REMOTE_HOST" "tar -C $REMOTE_PATH -xf -"
+fi
 
 echo ""
 echo "Deployment complete."

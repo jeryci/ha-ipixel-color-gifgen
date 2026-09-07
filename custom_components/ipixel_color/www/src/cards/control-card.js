@@ -238,7 +238,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     const effectIndex = Object.keys(EFFECTS).indexOf(effect);
     const rainbowMode = effectIndex >= 0 ? Math.min(effectIndex, 9) : 0;
     this._callService('display_native_text', {
-      text: '',
+      text: ' ',
       effect: 0,
       speed: speed,
       color_fg: [255, 255, 255],
@@ -664,7 +664,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
           const effectIndex = Object.keys(EFFECTS).indexOf('rainbow');
           const rainbowMode = effectIndex >= 0 ? Math.min(effectIndex, 9) : 0;
           this._callService('display_native_text', {
-            text: '',
+            text: ' ',
             effect: 0,
             speed: 50,
             color_fg: [255,255,255],

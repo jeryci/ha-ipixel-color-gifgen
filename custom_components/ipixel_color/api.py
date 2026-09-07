@@ -1552,7 +1552,10 @@ class iPIXELAPI:
                 _LOGGER.error("Gallery asset not found: %s", gallery_path)
                 return False
 
-            asset_bytes = gallery_path.read_bytes()
+            if self._hass is None:
+                asset_bytes = gallery_path.read_bytes()
+            else:
+                asset_bytes = await self._hass.async_add_executor_job(gallery_path.read_bytes)
             _LOGGER.info(
                 "Loading local gallery asset: %s/%s (%d bytes)",
                 size, filename, len(asset_bytes),

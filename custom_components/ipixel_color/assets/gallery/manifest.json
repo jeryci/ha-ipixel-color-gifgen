@@ -99,7 +99,32 @@
   "64x16": {
     "width": 64,
     "height": 16,
-    "animations": [],
+    "animations": [
+      {
+        "file": "ipixel_anim_rainbow_64x16.gif",
+        "num": 1
+      },
+      {
+        "file": "ipixel_anim_fire_64x16.gif",
+        "num": 2
+      },
+      {
+        "file": "ipixel_anim_plasma_64x16.gif",
+        "num": 3
+      },
+      {
+        "file": "ipixel_anim_matrix_64x16.gif",
+        "num": 4
+      },
+      {
+        "file": "ipixel_anim_stars_64x16.gif",
+        "num": 5
+      },
+      {
+        "file": "ipixel_anim_water_64x16.gif",
+        "num": 6
+      }
+    ],
     "eyes": [
       {
         "file": "ipixel_rc_eye_anim_l_16x64_1.gif",

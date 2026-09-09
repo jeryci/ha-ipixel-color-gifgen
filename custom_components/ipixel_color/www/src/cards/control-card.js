@@ -68,6 +68,24 @@ export class iPIXELControlCard extends iPIXELCardBase {
     loadFont('CUSONG');
   }
 
+  _getFormHash() {
+    const state = getDisplayState();
+    return [
+      state.text,
+      state.effect,
+      state.speed,
+      state.fgColor,
+      state.bgColor,
+      state.mode,
+      state.font,
+      state.rainbowMode,
+      this._activeTab,
+      this._selectedAmbient,
+      this._selectedRhythmStyle,
+      this._rhythmLevels.join(',')
+    ].join('|');
+  }
+
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener('ipixel-display-update', this._handleDisplayUpdate);
@@ -414,6 +432,21 @@ export class iPIXELControlCard extends iPIXELCardBase {
     const bgColor = sharedState.bgColor || '#000000';
     const currentFont = sharedState.font || 'VCR_OSD_MONO';
 
+    const formHash = this._getFormHash();
+    if (formHash === this._lastFormHash && this.shadowRoot.querySelector('ha-card')) {
+      this._updateDisplay({
+        text: currentText,
+        effect: currentEffect,
+        speed: currentSpeed,
+        fgColor,
+        bgColor,
+        mode: currentMode,
+        font: currentFont
+      });
+      return;
+    }
+    this._lastFormHash = formHash;
+
     let testModeBanner = '';
     if (testMode) {
       testModeBanner = `
@@ -545,6 +578,53 @@ export class iPIXELControlCard extends iPIXELCardBase {
         };
     this._updateDisplay(displayState);
     this._attachListeners();
+    this._restoreFormValues();
+  }
+
+  _restoreFormValues() {
+    const state = getDisplayState();
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const textEl = $('control-text');
+    if (textEl && state.text) textEl.value = state.text;
+    const effectEl = $('control-effect');
+    if (effectEl && state.effect) effectEl.value = state.effect;
+    const rainbowEl = $('control-rainbow');
+    if (rainbowEl && state.rainbowMode !== undefined) rainbowEl.value = state.rainbowMode;
+    const speedEl = $('control-speed');
+    if (speedEl && state.speed) {
+      speedEl.value = state.speed;
+      const label = $('control-speed-val');
+      if (label) label.textContent = state.speed;
+    }
+    const fontEl = $('control-font');
+    if (fontEl && state.font) fontEl.value = state.font;
+    const fgEl = $('control-fg-color');
+    if (fgEl && state.fgColor) fgEl.value = state.fgColor;
+    const bgEl = $('control-bg-color');
+    if (bgEl && state.bgColor) bgEl.value = state.bgColor;
+    const ambientSpeedEl = $('ambient-speed');
+    if (ambientSpeedEl && state.speed) {
+      ambientSpeedEl.value = state.speed;
+      const label = $('ambient-speed-val');
+      if (label) label.textContent = state.speed;
+    }
+    this.shadowRoot.querySelectorAll('[data-ambient]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.ambient === state.effect);
+    });
+    this.shadowRoot.querySelectorAll('[data-rhythm-style]').forEach(btn => {
+      btn.classList.toggle('active', parseInt(btn.dataset.rhythmStyle) === state.rhythmStyle);
+    });
+    if (state.rhythmLevels) {
+      this._rhythmLevels = [...state.rhythmLevels];
+      this.shadowRoot.querySelectorAll('.rhythm-slider').forEach(slider => {
+        const band = parseInt(slider.dataset.band);
+        if (state.rhythmLevels[band] !== undefined) {
+          slider.value = state.rhythmLevels[band];
+          const valSpan = slider.nextElementSibling;
+          if (valSpan) valSpan.textContent = state.rhythmLevels[band];
+        }
+      });
+    }
   }
 
   _attachListeners() {

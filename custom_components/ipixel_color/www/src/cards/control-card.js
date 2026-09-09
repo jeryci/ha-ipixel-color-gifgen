@@ -281,45 +281,53 @@ export class iPIXELControlCard extends iPIXELCardBase {
   }
 
   _buildTextTab() {
+    const state = getDisplayState();
+    const text = state.text || '';
+    const effect = state.effect || 'fixed';
+    const speed = state.speed || 50;
+    const fgColor = state.fgColor || '#ff6600';
+    const bgColor = state.bgColor || '#000000';
+    const font = state.font || 'VCR_OSD_MONO';
+    const rainbowMode = state.rainbowMode || 0;
     return `
       <div class="subsection">
         <div class="subsection-title">Display Text</div>
         <div class="input-row">
-          <input type="text" class="text-input" id="control-text" placeholder="Enter text to display..." value="Hello">
+          <input type="text" class="text-input" id="control-text" placeholder="Enter text to display..." value="${text}">
           <button class="btn btn-primary" id="send-text-btn">Send</button>
         </div>
         <div class="two-col" style="margin-top:12px;">
           <div>
             <div class="subsection-title">Effect</div>
             <select class="dropdown" id="control-effect">
-              ${Object.entries(EFFECTS).filter(([_, info]) => info.category === EFFECT_CATEGORIES.TEXT).map(([name, info]) => `<option value="${name}">${info.name}</option>`).join('')}
+              ${Object.entries(EFFECTS).filter(([_, info]) => info.category === EFFECT_CATEGORIES.TEXT).map(([name, info]) => `<option value="${name}" ${name === effect ? 'selected' : ''}>${info.name}</option>`).join('')}
             </select>
           </div>
           <div>
             <div class="subsection-title">Rainbow Mode</div>
             <select class="dropdown" id="control-rainbow">
-              ${[0,1,2,3,4,5,6,7,8,9].map(v => `<option value="${v}">${v === 0 ? 'None' : 'Mode ' + v}</option>`).join('')}
+              ${[0,1,2,3,4,5,6,7,8,9].map(v => `<option value="${v}" ${v === rainbowMode ? 'selected' : ''}>${v === 0 ? 'None' : 'Mode ' + v}</option>`).join('')}
             </select>
           </div>
         </div>
         <div class="subsection-title" style="margin-top:12px;">Speed</div>
         <div class="control-row">
-          <input type="range" class="slider" id="control-speed" min="1" max="100" value="50">
-          <span class="slider-value" id="control-speed-val">50</span>
+          <input type="range" class="slider" id="control-speed" min="1" max="100" value="${speed}">
+          <span class="slider-value" id="control-speed-val">${speed}</span>
         </div>
         <div class="subsection-title" style="margin-top:12px;">Font</div>
         <div class="control-row">
           <select class="dropdown" id="control-font">
-            <option value="VCR_OSD_MONO">VCR OSD Mono</option>
-            <option value="CUSONG">CUSONG</option>
-            <option value="LEGACY">Legacy (Bitmap)</option>
+            <option value="VCR_OSD_MONO" ${font === 'VCR_OSD_MONO' ? 'selected' : ''}>VCR OSD Mono</option>
+            <option value="CUSONG" ${font === 'CUSONG' ? 'selected' : ''}>CUSONG</option>
+            <option value="LEGACY" ${font === 'LEGACY' ? 'selected' : ''}>Legacy (Bitmap)</option>
           </select>
         </div>
         <div class="subsection-title" style="margin-top:12px;">Colors</div>
         <div class="color-row">
-          <input type="color" class="color-picker" id="control-fg-color" value="#ff6600">
+          <input type="color" class="color-picker" id="control-fg-color" value="${fgColor}">
           <span style="font-size:0.85em;">Text</span>
-          <input type="color" class="color-picker" id="control-bg-color" value="#000000">
+          <input type="color" class="color-picker" id="control-bg-color" value="${bgColor}">
           <span style="font-size:0.85em;">Background</span>
         </div>
       </div>
@@ -330,20 +338,23 @@ export class iPIXELControlCard extends iPIXELCardBase {
     const ambientEffects = Object.entries(EFFECTS)
       .filter(([_, info]) => info.category === EFFECT_CATEGORIES.AMBIENT)
       .map(([name, info]) => ({ value: name, name: info.name }));
+    const ambientState = getDisplayState();
+    const ambientEffect = ambientState.effect || 'rainbow';
+    const ambientSpeed = ambientState.speed || 50;
     return `
       <div class="subsection">
         <div class="subsection-title">Ambient Effect</div>
         <div class="button-grid button-grid-3">
           ${ambientEffects.map(e => `
-            <button class="mode-btn" data-ambient="${e.value}">
+            <button class="mode-btn ${ambientEffect === e.value ? 'active' : ''}" data-ambient="${e.value}">
               <div style="font-size:1.1em;">${e.name}</div>
             </button>
           `).join('')}
         </div>
         <div class="subsection-title" style="margin-top:12px;">Speed</div>
         <div class="control-row">
-          <input type="range" class="slider" id="ambient-speed" min="1" max="100" value="50">
-          <span class="slider-value" id="ambient-speed-val">50</span>
+          <input type="range" class="slider" id="ambient-speed" min="1" max="100" value="${ambientSpeed}">
+          <span class="slider-value" id="ambient-speed-val">${ambientSpeed}</span>
         </div>
         <button class="btn btn-primary" id="apply-ambient-btn" style="width:100%;margin-top:12px;">Apply Effect</button>
       </div>
@@ -359,19 +370,22 @@ export class iPIXELControlCard extends iPIXELCardBase {
       { value: 4, name: 'Particle Style' },
     ];
     const BAND_LABELS = ['32Hz', '64Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '12kHz', '16kHz'];
+    const rhythmState = getDisplayState();
+    const selectedStyle = rhythmState.rhythmStyle || 0;
+    const rhythmLevels = rhythmState.rhythmLevels || new Array(11).fill(0);
     return `
       <div class="subsection">
         <div class="subsection-title">Visualization Style</div>
         <div class="button-grid button-grid-3">
           ${RHYTHM_STYLES.map(s => `
-            <button class="mode-btn ${this._selectedRhythmStyle === s.value ? 'active' : ''}" data-rhythm-style="${s.value}">
+            <button class="mode-btn ${selectedStyle === s.value ? 'active' : ''}" data-rhythm-style="${s.value}">
               <div style="font-size:0.9em;">${s.name}</div>
             </button>
           `).join('')}
         </div>
         <div class="subsection-title" style="margin-top:12px;">Frequency Levels (0-15)</div>
         <div class="rhythm-container">
-          ${this._rhythmLevels.map((level, i) => `
+          ${rhythmLevels.map((level, i) => `
             <div class="rhythm-band">
               <label>${BAND_LABELS[i]}</label>
               <input type="range" class="rhythm-slider" data-band="${i}" min="0" max="15" value="${level}">
@@ -581,13 +595,58 @@ export class iPIXELControlCard extends iPIXELCardBase {
       const label = $('control-speed-val');
       if (label) label.textContent = val;
       const text = $('control-text')?.value || '';
-      if (text) {
+      const effect = $('control-effect')?.value || 'fixed';
+      const fgColor = $('control-fg-color')?.value || '#ff6600';
+      const bgColor = $('control-bg-color')?.value || '#000000';
+      const font = $('control-font')?.value || 'VCR_OSD_MONO';
+      updateDisplayState({ text, mode: 'text', effect, speed: parseInt(val), fgColor, bgColor, font });
+    });
+    $('control-text')?.addEventListener('input', (e) => {
+      const text = e.target.value || '';
+      const effect = $('control-effect')?.value || 'fixed';
+      const fgColor = $('control-fg-color')?.value || '#ff6600';
+      const bgColor = $('control-bg-color')?.value || '#000000';
+      const font = $('control-font')?.value || 'VCR_OSD_MONO';
+      const speed = parseInt($('control-speed')?.value || '50');
+      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
+    });
+    $('control-effect')?.addEventListener('change', (e) => {
+      const text = $('control-text')?.value || '';
+      const effect = e.target.value || 'fixed';
+      const fgColor = $('control-fg-color')?.value || '#ff6600';
+      const bgColor = $('control-bg-color')?.value || '#000000';
+      const font = $('control-font')?.value || 'VCR_OSD_MONO';
+      const speed = parseInt($('control-speed')?.value || '50');
+      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
+    });
+    $('control-rainbow')?.addEventListener('change', (e) => {
+      const text = $('control-text')?.value || '';
+      const effect = $('control-effect')?.value || 'fixed';
+      const fgColor = $('control-fg-color')?.value || '#ff6600';
+      const bgColor = $('control-bg-color')?.value || '#000000';
+      const font = $('control-font')?.value || 'VCR_OSD_MONO';
+      const speed = parseInt($('control-speed')?.value || '50');
+      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font, rainbowMode: parseInt(e.target.value || '0') });
+    });
+    $('control-font')?.addEventListener('change', (e) => {
+      const text = $('control-text')?.value || '';
+      const effect = $('control-effect')?.value || 'fixed';
+      const fgColor = $('control-fg-color')?.value || '#ff6600';
+      const bgColor = $('control-bg-color')?.value || '#000000';
+      const font = e.target.value || 'VCR_OSD_MONO';
+      const speed = parseInt($('control-speed')?.value || '50');
+      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
+    });
+    ['control-fg-color', 'control-bg-color'].forEach(id => {
+      $(id)?.addEventListener('input', (e) => {
+        const text = $('control-text')?.value || '';
         const effect = $('control-effect')?.value || 'fixed';
         const fgColor = $('control-fg-color')?.value || '#ff6600';
         const bgColor = $('control-bg-color')?.value || '#000000';
         const font = $('control-font')?.value || 'VCR_OSD_MONO';
-        updateDisplayState({ text, mode: 'text', effect, speed: parseInt(val), fgColor, bgColor, font });
-      }
+        const speed = parseInt($('control-speed')?.value || '50');
+        updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
+      });
     });
     $('test-mode-toggle')?.addEventListener('click', () => setTestMode(!isTestMode()));
     this.shadowRoot.querySelectorAll('[data-mode]').forEach(btn => {
@@ -617,6 +676,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     this.shadowRoot.querySelectorAll('[data-ambient]').forEach(btn => {
       btn.addEventListener('click', () => {
         this._selectedAmbient = btn.dataset.ambient;
+        updateDisplayState({ mode: 'ambient', effect: btn.dataset.ambient });
         this.render();
       });
     });
@@ -624,6 +684,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     this.shadowRoot.querySelectorAll('[data-rhythm-style]').forEach(btn => {
       btn.addEventListener('click', () => {
         this._selectedRhythmStyle = parseInt(btn.dataset.rhythmStyle);
+        updateDisplayState({ mode: 'rhythm', rhythmStyle: this._selectedRhythmStyle });
         this.render();
       });
     });
@@ -633,6 +694,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
         const value = parseInt(e.target.value);
         this._rhythmLevels[band] = value;
         e.target.nextElementSibling.textContent = value;
+        updateDisplayState({ mode: 'rhythm', rhythmLevels: [...this._rhythmLevels] });
       });
     });
     $('apply-rhythm-btn')?.addEventListener('click', () => this._applyRhythm());
@@ -642,6 +704,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
         const val = e.target.value;
         const label = $('ambient-speed-val');
         if (label) label.textContent = val;
+        updateDisplayState({ speed: parseInt(val) });
       });
     }
   }

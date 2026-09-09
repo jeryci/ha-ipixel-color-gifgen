@@ -1569,11 +1569,10 @@ class iPIXELAPI:
             return False
 
     async def display_ambient(self, effect: str = "rainbow", speed: int = 50) -> bool:
-        """Display an ambient effect by sending a small animated GIF.
+        """Display an ambient effect by saving a generated GIF to the gallery and displaying it.
 
-        This generates rendered frames for the requested ambient effect
-        and pushes them through the normal image pipeline so the device
-        shows an actual animation.
+        This uses the same proven code path as the gallery (which we know works)
+        to ensure compatibility with the device.
         """
         try:
             device_info = await self._get_device_info()
@@ -1667,7 +1666,19 @@ class iPIXELAPI:
                 duration=frame_delay,
                 loop=0,
             )
-            return await self.display_image_url_bytes(buf.getvalue(), 1)
+
+            # Save to gallery directory and use display_local_gallery (proven path)
+            from pathlib import Path
+            gallery_dir = Path(__file__).parent / "assets" / "gallery" / f"{width}x{height}"
+            gallery_dir.mkdir(parents=True, exist_ok=True)
+            
+            filename = f"ipixel_ambient_{effect_key}_64x16.gif"
+            gif_path = gallery_dir / filename
+            gif_path.write_bytes(buf.getvalue())
+            
+            _LOGGER.info("Saved ambient GIF to %s, displaying via local gallery", gif_path)
+            
+            return await self.display_local_gallery(f"{width}x{height}", filename, 1)
         except Exception as err:
             _LOGGER.error("Error displaying ambient: %s", err)
             return False

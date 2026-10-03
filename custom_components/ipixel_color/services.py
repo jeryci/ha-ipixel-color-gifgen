@@ -1156,6 +1156,7 @@ async def handle_set_matrix_text(call: ServiceCall) -> None:
     buffer_slot = int(call.data.get("buffer_slot", 1))
     rainbow_mode = int(call.data.get("rainbow_mode", 0) or 0)
     font = call.data.get("font") or None
+    spacing = call.data.get("spacing") or None
 
     fg = _coerce_rgb(call.data.get("color_fg"), (255, 255, 255))
     bg = _coerce_rgb(call.data.get("color_bg"), (0, 0, 0))
@@ -1173,6 +1174,7 @@ async def handle_set_matrix_text(call: ServiceCall) -> None:
         font_size=font_size,
         buffer_slot=buffer_slot,
         font=font,
+        spacing=spacing,
     )
 
     if success:

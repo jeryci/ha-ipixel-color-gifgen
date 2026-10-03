@@ -80,6 +80,12 @@ const FONT_SIZES = [
   { value: 32, label: '32px large' },
 ];
 
+const TEXT_SPACING = [
+  { value: 'auto', label: 'Auto (match font)' },
+  { value: 'wide', label: 'Wide (8px gap)' },
+  { value: 'tight', label: 'Tight (packed)' },
+];
+
 const GIF_EFFECTS = [
   { value: 'rainbow', name: 'Rainbow' },
   { value: 'fire', name: 'Fire' },
@@ -93,6 +99,7 @@ const GIF_TEXT_DEFAULTS = {
   text: '',
   font: 'cusong',
   fontSize: 16,
+  spacing: 'auto',
   effect: 'auto',
   speed: 50,
   fgColor: '#ffffff',
@@ -148,6 +155,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     if ($('text-input')) $('text-input').value = t.text;
     if ($('text-font')) $('text-font').value = t.font;
     if ($('text-font-size')) $('text-font-size').value = String(t.fontSize);
+    if ($('text-spacing')) $('text-spacing').value = t.spacing || 'auto';
     if ($('text-effect')) $('text-effect').value = t.effect;
     if ($('rainbow-mode')) $('rainbow-mode').value = String(t.rainbowMode);
     if ($('text-color')) $('text-color').value = t.fgColor;
@@ -188,6 +196,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
       speed: t.speed,
       font: t.font,
       font_size: t.fontSize,
+      spacing: t.spacing,
       color_fg: this.hexToRgb(t.fgColor),
       color_bg: this.hexToRgb(t.bgColor),
       rainbow_mode: t.rainbowMode,
@@ -223,6 +232,14 @@ export class iPIXELControlCard extends iPIXELCardBase {
           </div>
         </div>
       </div>
+
+      <div class="section-title">Letter spacing</div>
+      <div class="control-row">
+        <select class="dropdown" id="text-spacing">
+          ${TEXT_SPACING.map(s => `<option value="${s.value}">${s.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="hint">The panel advances one fixed cell per letter, so spacing cannot be finer than the font's own pitch.</div>
 
       <div class="section-title">Effect</div>
       <div class="control-row">
@@ -260,6 +277,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     $('text-input')?.addEventListener('input', (e) => this._updateText({ text: e.target.value }));
     $('text-font')?.addEventListener('change', (e) => this._updateText({ font: e.target.value }));
     $('text-font-size')?.addEventListener('change', (e) => this._updateText({ fontSize: parseInt(e.target.value, 10) }));
+    $('text-spacing')?.addEventListener('change', (e) => this._updateText({ spacing: e.target.value }));
     $('text-effect')?.addEventListener('change', (e) => this._updateText({ effect: e.target.value }));
     $('rainbow-mode')?.addEventListener('change', (e) => {
       this._updateText({ rainbowMode: parseInt(e.target.value, 10) || 0 });

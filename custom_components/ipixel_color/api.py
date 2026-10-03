@@ -1695,6 +1695,7 @@ class iPIXELAPI:
         font_size: int = 16,
         buffer_slot: int = 1,
         font: str | None = None,
+        spacing: str | None = None,
     ) -> bool:
         """Display text with automatic effect selection.
 
@@ -1717,6 +1718,7 @@ class iPIXELAPI:
             buffer_slot: Device storage slot. 1-100 persists, 0x65 (101)
                 shows without saving.
             font: Font to render with (key of TEXT_FONTS or a font filename).
+            spacing: Letter spacing, "auto" (default), "wide" or "tight".
 
         Returns:
             True if text was sent successfully.
@@ -1739,8 +1741,8 @@ class iPIXELAPI:
         width, height = self._panel_dimensions()
 
         if str(effect).strip().lower() == "auto":
-            panel_width = width or measure_text_width(text, font_size, font)
-            text_width = measure_text_width(text, font_size, font)
+            text_width = measure_text_width(text, font_size, font, spacing)
+            panel_width = width or text_width
             effect = (
                 TEXT_ANIM_SCROLL_LEFT
                 if text_width > panel_width
@@ -1767,7 +1769,9 @@ class iPIXELAPI:
         )
 
         try:
-            payload = build_native_text_payload(text, style, font_size, fg_color, font)
+            payload = build_native_text_payload(
+                text, style, font_size, fg_color, font, spacing
+            )
         except ValueError as err:
             _LOGGER.error("Cannot display text %r: %s", text, err)
             return False

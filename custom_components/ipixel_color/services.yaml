@@ -1527,6 +1527,23 @@ set_matrix_text:
               value: "16"
             - label: "32px (Large)"
               value: "32"
+    spacing:
+      name: Letter Spacing
+      description: >-
+        Gap between letters. Auto matches the gap to the font's own pitch,
+        which is the tightest setting the panel protocol allows. Wide puts a
+        full 8px gap between letters, tight always packs them together.
+      required: false
+      default: "auto"
+      selector:
+        select:
+          options:
+            - label: "Auto (match font)"
+              value: "auto"
+            - label: "Wide (8px gap)"
+              value: "wide"
+            - label: "Tight (packed)"
+              value: "tight"
     buffer_slot:
       name: Buffer Slot
       description: Device storage slot (1-100). Use 101 to display without saving.

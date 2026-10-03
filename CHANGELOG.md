@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1]
+
+### Fixed
+- Letters are no longer spaced too far apart. The panel advances one fixed
+  cell per glyph, and the cell was always 16px, so an 8px-pitch font such as
+  CUSONG got a phantom 8px gap between every letter. The cell now matches the
+  font's own pitch.
+- Text no longer floats in the middle of the panel. Glyph ink was centred
+  inside its cell; it is now drawn on the font's baseline and rests on the
+  bottom edge, which also puts descenders on the correct line.
+- `measure_text_width` no longer adds a spare cell, so text that fits is not
+  needlessly scrolled. More text now fits per line: `HELLO` in CUSONG is 40px
+  and static, where it was 80px and scrolling.
+
+### Added
+- `spacing` option on `set_matrix_text` and in the Text tab: `auto` (match the
+  font), `wide` (8px gap) or `tight` (packed, may clip wider fonts)
+
 ## [0.5.0]
 
 ### Added

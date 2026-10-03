@@ -301,20 +301,74 @@ def build_text_header(record_count: int, style: TextStyle) -> bytes:
     return bytes(header)
 
 
-def pick_record_type(font_size: int) -> int:
+def pick_record_type(
+    font_size: int,
+    advance: float | None = None,
+    spacing: str | None = None,
+) -> int:
     """Choose a glyph record type for the requested character height.
+
+    The device advances to the next glyph by the full cell width of the
+    record type, not by the glyph's ink width. Picking a cell wider than the
+    font's own pitch therefore adds phantom gaps between letters, which is
+    very visible on an 8px-pitch font such as CUSONG placed in a 16px cell.
 
     Args:
         font_size: Requested character height in pixels.
+        advance: Natural horizontal advance of the font in pixels. When given,
+            the narrowest cell that still fits it is chosen.
+        spacing: "auto" (default) matches the cell to the font's pitch,
+            "wide" always uses the 16px cell so letters get an 8px gap, and
+            "tight" always uses the 8px cell. Ignored for heights that have
+            only one possible cell.
 
     Returns:
         Record type byte (a key of GLYPH_RECORD_TYPES).
     """
     if font_size >= 32:
         return 0x02
-    if font_size > 8:
+
+    if font_size <= 8:
+        return 0x00
+
+    choice = (spacing or "auto").strip().lower()
+    if choice == "wide":
         return 0x01
-    return 0x00
+    if choice == "tight":
+        return 0x00
+
+    if advance is not None and advance <= GLYPH_RECORD_TYPES[0x00][0]:
+        return 0x00
+
+    return 0x01
+
+
+def natural_advance(size: int, font_name: str | None = None) -> float | None:
+    """Return the font's own horizontal advance per character.
+
+    Used to size the glyph cell to the font's pitch. Returns None when the
+    metrics cannot be read, so callers can fall back to the height-only
+    choice.
+
+    Args:
+        size: Font size in pixels.
+        font_name: Font value to measure with.
+
+    Returns:
+        Advance width in pixels, or None if unavailable.
+    """
+    try:
+        from PIL import Image, ImageDraw
+
+        font = _load_font(size, font_name)
+        draw = ImageDraw.Draw(Image.new("L", (1, 1), 0))
+        # "M" is the widest glyph in most text faces and avoids the zero
+        # advance of a space.
+        advance = draw.textlength("M", font=font)
+        return advance if advance > 0 else None
+    except Exception:  # noqa: BLE001 - metrics are a best-effort hint
+        _LOGGER.debug("Could not measure font advance for %r", font_name)
+        return None
 
 
 def _reverse_bits(value: int) -> int:
@@ -423,6 +477,38 @@ def _load_font(size: int, font_name: str | None = None):
     return ImageFont.load_default()
 
 
+def _baseline_offset(font, bbox: tuple[int, int, int, int], height: int) -> int:
+    """Vertical draw offset that sits the glyph on the panel's bottom edge.
+
+    Centring the ink in the cell instead leaves the text floating in the
+    middle of a short panel, because a font at size N rarely fills its full
+    em box: CUSONG at 16px draws 10px of ink with 6px of leading around it.
+
+    Placing the glyph on the font's own baseline rather than centring it keeps
+    every letter on one line, which is what makes descenders (g, p, q, y) sit
+    correctly relative to the rest of the word.
+
+    Args:
+        font: Loaded PIL font.
+        bbox: Result of draw.textbbox((0, 0), char, font).
+        height: Cell height in pixels.
+
+    Returns:
+        Y offset to draw at. May be negative for a font too tall for the cell,
+        which clips the top rather than pushing the text off the bottom.
+    """
+    try:
+        ascent, _ = font.getmetrics()
+    except AttributeError:
+        ascent = height
+
+    # Baseline sits as low as the cell allows while leaving room for
+    # descenders, so the row of ink lands flush with the bottom edge.
+    baseline = min(ascent, height - 1)
+    # textbbox's bottom edge is exclusive, hence the +1.
+    return baseline - bbox[3] + 1
+
+
 def render_glyph_bitmap(
     char: str,
     record_type: int,
@@ -430,6 +516,10 @@ def render_glyph_bitmap(
     font_name: str | None = None,
 ) -> bytes:
     """Render one character into the fixed-size bitmap the device expects.
+
+    The glyph is drawn on the font's baseline and flush with the left edge of
+    its cell, so consecutive letters sit close together and the text rests on
+    the bottom of the panel.
 
     Args:
         char: Single character to render.
@@ -457,10 +547,11 @@ def render_glyph_bitmap(
     img = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(img)
 
-    # Centre the glyph inside the fixed cell.
     bbox = draw.textbbox((0, 0), char, font=font)
-    offset_x = -bbox[0] + max(0, (width - (bbox[2] - bbox[0])) // 2)
-    offset_y = -bbox[1] + max(0, (height - (bbox[3] - bbox[1])) // 2)
+    # Left-aligned: the device advances by the full cell anyway, so centring
+    # here would only trade leading space for trailing space.
+    offset_x = -bbox[0]
+    offset_y = _baseline_offset(font, bbox, height)
     draw.text((offset_x, offset_y), char, fill=255, font=font)
 
     bitmap = bytearray()
@@ -508,39 +599,53 @@ def build_char_record(
     return bytes(record)
 
 
-def measure_text_width(text: str, font_size: int = 16, font_name: str | None = None) -> int:
+def cell_height_for(font_size: int) -> int:
+    """Return the pixel height glyphs are drawn at for a font size.
+
+    Glyphs are always rendered at the full height of their record type, so this
+    -- not font_size -- is the size the font is loaded at.
+
+    Args:
+        font_size: Requested character height in pixels.
+
+    Returns:
+        Glyph height in pixels.
+    """
+    return GLYPH_RECORD_TYPES[pick_record_type(font_size)][1]
+
+
+def measure_text_width(
+    text: str,
+    font_size: int = 16,
+    font_name: str | None = None,
+    spacing: str | None = None,
+) -> int:
     """Estimate the rendered pixel width of a string.
 
-    Used to decide whether the text needs to scroll. Each glyph occupies a
-    fixed cell, so the cell width is the dominant term; the font metrics only
-    refine it for fonts that draw narrower than their cell.
+    The device lays glyphs out on a fixed grid, advancing by the record type's
+    cell width for every character, so the layout width is exactly
+    ``len(text) * cell_width``. That is what decides whether the text needs to
+    scroll, so it must not be padded: an extra cell here would start scrolling
+    text that in fact fits.
 
     Args:
         text: Text string to measure.
         font_size: Requested glyph height; selects the record type.
         font_name: Font value to measure with.
+        spacing: Letter spacing override, see pick_record_type.
 
     Returns:
-        Estimated width in pixels.
+        Width in pixels as the device will lay the text out.
     """
     if not text:
         return 0
 
-    record_type = pick_record_type(font_size)
-    cell_width = GLYPH_RECORD_TYPES[record_type][0]
-
-    try:
-        from PIL import ImageDraw, Image
-
-        font = _load_font(GLYPH_RECORD_TYPES[record_type][1], font_name)
-        draw = ImageDraw.Draw(Image.new("L", (1, 1), 0))
-        advance = draw.textlength(text, font=font)
-        if advance > 0:
-            return int(round(advance)) + cell_width
-    except Exception:  # noqa: BLE001 - metrics are a best-effort estimate
-        _LOGGER.debug("Falling back to fixed-cell width estimate for %r", text)
-
-    return len(text) * cell_width
+    record_type = pick_record_type(
+        font_size,
+        natural_advance(cell_height_for(font_size), font_name),
+        spacing,
+    )
+    return len(text) * GLYPH_RECORD_TYPES[record_type][0]
 
 
 def build_native_text_payload(
@@ -549,6 +654,7 @@ def build_native_text_payload(
     font_size: int = 16,
     color: tuple[int, int, int] = (255, 255, 255),
     font_name: str | None = None,
+    spacing: str | None = None,
 ) -> bytes:
     """Build a complete native text protocol payload.
 
@@ -558,6 +664,7 @@ def build_native_text_payload(
         font_size: Requested glyph height; selects the record type.
         color: Default text colour, used when no style is supplied.
         font_name: Font value to render with.
+        spacing: Letter spacing override, see pick_record_type.
 
     Returns:
         Complete text payload, ready to be wrapped in 0x0100 frames.
@@ -565,7 +672,11 @@ def build_native_text_payload(
     if style is None:
         style = TextStyle(fg_color=color)
 
-    record_type = pick_record_type(font_size)
+    record_type = pick_record_type(
+        font_size,
+        natural_advance(cell_height_for(font_size), font_name),
+        spacing,
+    )
 
     records = []
     for char in text:

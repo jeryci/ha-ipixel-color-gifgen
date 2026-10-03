@@ -95,6 +95,7 @@ class BluetoothClient:
         self._address = address
         self._client: BleakClientWithServiceCache | None = None  
         self._connected = False
+        self._connecting = False
         self._ack_mgr: Optional[AckManager] = None
         self._device_info: Optional[DeviceInfo] = None
 
@@ -102,6 +103,18 @@ class BluetoothClient:
         """Called when device disconnects."""
         _LOGGER.warning("iPIXEL device %s disconnected", self._address)
         self._connected = False
+
+    def _invalidate(self) -> None:
+        """Forget the current client so the next transfer builds a fresh one.
+
+        A disconnected BleakClient keeps its object but loses its discovered
+        GATT services, so any later write against it fails with
+        "Service Discovery has not been performed yet". Dropping the reference
+        is what makes the next transfer reconnect instead.
+        """
+        self._client = None
+        self._connected = False
+        self._ack_mgr = None
 
     async def connect(self) -> DeviceInfo:
         """Connect to the iPIXEL device.
@@ -114,6 +127,9 @@ class BluetoothClient:
         """
         _LOGGER.debug("Connecting to iPIXEL device at %s", self._address)
 
+        # connect() itself sends a command, so send_plan must not try to
+        # reconnect while this is in progress.
+        self._connecting = True
         try:
             # Get BLEDevice from Home Assistant's Bluetooth integration
             ble_device = bluetooth.async_ble_device_from_address(
@@ -139,10 +155,14 @@ class BluetoothClient:
 
         except BleakError as err:
             _LOGGER.error("Failed to connect to %s: %s", self._address, err)
+            self._invalidate()
             raise iPIXELConnectionError(f"Connection failed: {err}") from err
         except Exception as err:
             _LOGGER.error("Unexpected error connecting to %s: %s", self._address, err)
+            self._invalidate()
             raise iPIXELConnectionError(f"Connection failed: {err}") from err
+        finally:
+            self._connecting = False
 
         self._connected = True
         _LOGGER.debug("Connected to %s, fetching device info", self._address)
@@ -250,8 +270,34 @@ class BluetoothClient:
         return await self.send_plan(plan)
 
 
+    async def _ensure_connected(self) -> None:
+        """Reconnect if the client is missing or no longer usable.
+
+        A long transfer (a GIF is thousands of chunks) is enough for the link
+        to drop, and BlueZ will not re-discover services on the dead client.
+        Reconnecting here is what stops a dropped link from turning every
+        later command into a BleakError.
+        """
+        if self._connecting or self.is_connected:
+            return
+
+        if self._client is None:
+            _LOGGER.debug("No BLE client for %s, connecting", self._address)
+        else:
+            _LOGGER.info(
+                "iPIXEL %s dropped its connection, reconnecting before transfer",
+                self._address,
+            )
+            self._invalidate()
+
+        await self.connect()
+
     async def send_plan(self, plan: SendPlan) -> CommandResult:
         """Send a SendPlan to the device.
+
+        Reconnects a dropped link before transferring and retries once if the
+        link fails mid-transfer, because an image upload leaves the panel in
+        transfer mode and simply failing would reset the matrix.
 
         Args:
             plan: SendPlan object containing windows of command data
@@ -261,13 +307,39 @@ class BluetoothClient:
         """
         if send_plan_pypixelcolor is None:
             raise ImportError("pypixelcolor library is not installed")
-        
-        return await send_plan_pypixelcolor(
-            client=self._client,
-            plan=plan,
-            ack_mgr=self._ack_mgr,
-            ack_timeout=DEFAULT_ACK_TIMEOUT,
-        )
+
+        await self._ensure_connected()
+
+        if self._ack_mgr is not None:
+            # ACK events from a previous transfer would let this one race
+            # ahead of the device and desynchronise the window sequence.
+            self._ack_mgr.reset()
+
+        try:
+            return await send_plan_pypixelcolor(
+                client=self._client,
+                plan=plan,
+                ack_mgr=self._ack_mgr,
+                ack_timeout=DEFAULT_ACK_TIMEOUT,
+            )
+        except BleakError as err:
+            _LOGGER.warning(
+                "Transfer to %s failed (%s), reconnecting and retrying once",
+                self._address,
+                err,
+            )
+            self._invalidate()
+            await self.connect()
+
+            if self._ack_mgr is not None:
+                self._ack_mgr.reset()
+
+            return await send_plan_pypixelcolor(
+                client=self._client,
+                plan=plan,
+                ack_mgr=self._ack_mgr,
+                ack_timeout=DEFAULT_ACK_TIMEOUT,
+            )
 
     @property
     def is_connected(self) -> bool:

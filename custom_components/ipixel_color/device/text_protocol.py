@@ -357,6 +357,40 @@ def build_char_record(
     return bytes(record)
 
 
+def measure_text_width(text: str, font_size: int = 16) -> int:
+    """Estimate the rendered pixel width of a string.
+
+    Used to decide whether the text needs to scroll. Each glyph occupies a
+    fixed cell, so the cell width is the dominant term; the font metrics only
+    refine it for fonts that draw narrower than their cell.
+
+    Args:
+        text: Text string to measure.
+        font_size: Requested glyph height; selects the record type.
+
+    Returns:
+        Estimated width in pixels.
+    """
+    if not text:
+        return 0
+
+    record_type = pick_record_type(font_size)
+    cell_width = GLYPH_RECORD_TYPES[record_type][0]
+
+    try:
+        from PIL import ImageDraw, Image
+
+        font = _load_font(GLYPH_RECORD_TYPES[record_type][1])
+        draw = ImageDraw.Draw(Image.new("L", (1, 1), 0))
+        advance = draw.textlength(text, font=font)
+        if advance > 0:
+            return int(round(advance)) + cell_width
+    except Exception:  # noqa: BLE001 - metrics are a best-effort estimate
+        _LOGGER.debug("Falling back to fixed-cell width estimate for %r", text)
+
+    return len(text) * cell_width
+
+
 def build_native_text_payload(
     text: str,
     style: TextStyle | None = None,

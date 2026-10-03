@@ -71,6 +71,7 @@ SERVICE_RESERVE_SLOT = "reserve_slot"
 SERVICE_SET_SPORT_DATA = "set_sport_data"
 SERVICE_DISPLAY_GALLERY_ASSET = "display_gallery_asset"
 SERVICE_DISPLAY_NATIVE_TEXT = "display_native_text"
+SERVICE_SET_MATRIX_TEXT = "set_matrix_text"
 SERVICE_DISPLAY_BORDER = "display_border"
 SERVICE_QUERY_DEVICE_TIME = "query_device_time"
 SERVICE_QUERY_DEVICE_DATETIME = "query_device_datetime"
@@ -1116,6 +1117,67 @@ async def handle_display_native_text(call: ServiceCall) -> None:
     except Exception as err:
         _LOGGER.error("Error displaying native text: %s", err)
 
+def _coerce_rgb(value, default: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Accept [r, g, b], "rrggbb", "#rrggbb" or (r, g, b) as a colour."""
+    if isinstance(value, str):
+        hex_value = value.strip().lstrip("#")
+        if len(hex_value) == 6:
+            try:
+                return (
+                    int(hex_value[0:2], 16),
+                    int(hex_value[2:4], 16),
+                    int(hex_value[4:6], 16),
+                )
+            except ValueError:
+                return default
+        return default
+
+    if isinstance(value, (list, tuple)) and len(value) >= 3:
+        try:
+            return (int(value[0]), int(value[1]), int(value[2]))
+        except (TypeError, ValueError):
+            return default
+
+    return default
+
+
+async def handle_set_matrix_text(call: ServiceCall) -> None:
+    """Handle set_matrix_text service call.
+
+    Single entry point for text on the panel: content, colour, effect, speed.
+    """
+    api = get_api(call)
+
+    text = call.data.get("text", "")
+    effect = call.data.get("effect", "auto")
+    speed = int(call.data.get("speed", 50))
+    font_size = int(call.data.get("font_size", 16))
+    buffer_slot = int(call.data.get("buffer_slot", 1))
+    rainbow_mode = int(call.data.get("rainbow_mode", 0) or 0)
+
+    fg = _coerce_rgb(call.data.get("color_fg"), (255, 255, 255))
+    bg = _coerce_rgb(call.data.get("color_bg"), (0, 0, 0))
+
+    if text is None:
+        text = ""
+
+    success = await api.display_text_matrix(
+        text=str(text),
+        fg_color=fg,
+        bg_color=bg,
+        effect=effect,
+        speed=speed,
+        rainbow_mode=rainbow_mode,
+        font_size=font_size,
+        buffer_slot=buffer_slot,
+    )
+
+    if success:
+        _LOGGER.info("Matrix text displayed: %r", text)
+    else:
+        _LOGGER.error("Failed to display matrix text: %r", text)
+
+
 async def handle_display_border(call: ServiceCall) -> None:
     """Handle display_border service call."""
     api = get_api(call)
@@ -1455,6 +1517,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_AMBIENT, handle_display_ambient)
     if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_NATIVE_TEXT):
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_NATIVE_TEXT, handle_display_native_text)
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_MATRIX_TEXT):
+        hass.services.async_register(DOMAIN, SERVICE_SET_MATRIX_TEXT, handle_set_matrix_text)
     if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_BORDER):
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_BORDER, handle_display_border)
     if not hass.services.has_service(DOMAIN, SERVICE_QUERY_DEVICE_TIME):

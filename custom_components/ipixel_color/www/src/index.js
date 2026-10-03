@@ -41,7 +41,7 @@ try {
   [
     { type: 'ipixel-display-card', name: 'iPIXEL Display', description: 'LED matrix preview with power control' },
     { type: 'ipixel-controls-card', name: 'iPIXEL Controls', description: 'Brightness, mode, and orientation controls' },
-    { type: 'ipixel-text-card', name: 'iPIXEL Text', description: 'Text input with effects and colors' },
+    { type: 'ipixel-text-card', name: 'iPIXEL Text', description: 'Send text to the matrix with colour, effects and speed' },
     { type: 'ipixel-playlist-card', name: 'iPIXEL Playlist', description: 'Playlist management' },
     { type: 'ipixel-schedule-card', name: 'iPIXEL Schedule', description: 'Power schedule and time slots' },
     { type: 'ipixel-editor-card', name: 'iPIXEL Pixel Editor', description: 'Draw custom pixel art and send to your LED matrix' },

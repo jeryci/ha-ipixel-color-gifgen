@@ -1,21 +1,31 @@
 /**
  * iPIXEL Text Card
- * Text input with effects and colors - with tabbed interface
+ *
+ * Single-purpose card for the LED matrix: text content, colour, effect and
+ * speed. Everything runs on the device, so scrolling and blink stay smooth.
  */
 
 import { iPIXELCardBase } from '../base.js';
 import { iPIXELCardStyles } from '../styles.js';
-import { updateDisplayState } from '../state.js';
+import { updateDisplayState, getDisplayState } from '../state.js';
 import {
   renderSlider, attachSlider,
-  renderGridSelector, attachGridSelector,
   renderColorRow, attachColorRow,
-  renderTabs, attachTabs, renderPanel,
 } from '../components/index.js';
-import { EFFECTS, EFFECT_CATEGORIES } from 'react-pixel-display/core';
+
+const EFFECTS = [
+  { value: 'auto', label: 'Auto (scroll only if too wide)' },
+  { value: 'static', label: 'Static' },
+  { value: 'scroll_left', label: 'Scroll right to left' },
+  { value: 'scroll_right', label: 'Scroll left to right' },
+  { value: 'blink', label: 'Blink' },
+  { value: 'breeze', label: 'Breeze' },
+  { value: 'snow', label: 'Snow' },
+  { value: 'laser', label: 'Laser' },
+];
 
 const RAINBOW_MODES = [
-  { value: 0, name: 'None' },
+  { value: 0, name: 'Off (use text colour)' },
   { value: 1, name: 'Rainbow Wave' },
   { value: 2, name: 'Rainbow Cycle' },
   { value: 3, name: 'Rainbow Pulse' },
@@ -27,337 +37,192 @@ const RAINBOW_MODES = [
   { value: 9, name: 'Rainbow Fire' },
 ];
 
-const RHYTHM_STYLES = [
-  { value: 0, name: 'Classic Bars' },
-  { value: 1, name: 'Mirrored Bars' },
-  { value: 2, name: 'Center Out' },
-  { value: 3, name: 'Wave Style' },
-  { value: 4, name: 'Particle Style' },
+const FONT_SIZES = [
+  { value: 8, label: '8px small' },
+  { value: 16, label: '16px medium' },
+  { value: 32, label: '32px large' },
 ];
 
-const RHYTHM_BAND_LABELS = ['32Hz', '64Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '12kHz', '16kHz'];
-
-const TABS = [
-  { id: 'text', label: 'Text' },
-  { id: 'ambient', label: 'Ambient' },
-  { id: 'rhythm', label: 'Rhythm' },
-  { id: 'advanced', label: 'GFX' },
-];
+const DEFAULTS = {
+  text: '',
+  effect: 'auto',
+  speed: 50,
+  fgColor: '#ffffff',
+  bgColor: '#000000',
+  rainbowMode: 0,
+  fontSize: 16,
+};
 
 export class iPIXELTextCard extends iPIXELCardBase {
   constructor() {
     super();
-    this._activeTab = 'text';
-    this._rhythmLevels = new Array(11).fill(0);
-    this._selectedRhythmStyle = 0;
-    this._selectedAmbient = 'rainbow';
+    this._form = { ...DEFAULTS, ...getDisplayState() };
+    this._error = '';
   }
 
-  _ambientItems() {
-    return Object.entries(EFFECTS)
-      .filter(([_, info]) => info.category === EFFECT_CATEGORIES.AMBIENT)
-      .map(([name, info]) => ({ value: name, name: info.name }));
+  getCardSize() { return 3; }
+
+  _update(patch) {
+    this._form = { ...this._form, ...patch };
+    updateDisplayState({
+      text: this._form.text,
+      mode: 'text',
+      effect: this._form.effect,
+      speed: this._form.speed,
+      fgColor: this._form.fgColor,
+      bgColor: this._form.bgColor,
+      rainbowMode: this._form.rainbowMode,
+      fontSize: this._form.fontSize,
+    });
+    this._restoreFormValues();
   }
 
-  _buildTextEffectOptions() {
-    const byCategory = (cat) => Object.entries(EFFECTS)
-      .filter(([_, info]) => info.category === cat)
-      .map(([name, info]) => `<option value="${name}">${info.name}</option>`)
-      .join('');
-    return `
-      <optgroup label="Text Effects">${byCategory(EFFECT_CATEGORIES.TEXT)}</optgroup>
-      <optgroup label="Color Effects">${byCategory(EFFECT_CATEGORIES.COLOR)}</optgroup>`;
+  _restoreFormValues() {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const f = this._form;
+
+    if ($('text-input')) $('text-input').value = f.text;
+    if ($('text-effect')) $('text-effect').value = f.effect;
+    if ($('rainbow-mode')) $('rainbow-mode').value = String(f.rainbowMode);
+    if ($('font-size')) $('font-size').value = String(f.fontSize);
+    if ($('text-speed')) {
+      $('text-speed').value = f.speed;
+      $('text-speed').style.setProperty('--value', `${f.speed}%`);
+      const val = $('text-speed-val');
+      if (val) val.textContent = `${f.speed}`;
+    }
+    if ($('text-color')) $('text-color').value = f.fgColor;
+    if ($('bg-color')) $('bg-color').value = f.bgColor;
   }
 
-  _renderTextTab() {
-    return `
-      <div class="section-title">Display Text</div>
-      <div class="input-row">
-        <input type="text" class="text-input" id="text-input" placeholder="Enter text to display...">
-        <button class="btn btn-primary" id="send-btn">Send</button>
-      </div>
-      <div class="two-col">
-        <div>
-          <div class="section-title">Effect</div>
-          <div class="control-row">
-            <select class="dropdown" id="text-effect">${this._buildTextEffectOptions()}</select>
+  render() {
+    if (!this._hass) return;
+
+    const f = this._form;
+    const rainbow = f.rainbowMode > 0;
+
+    this.shadowRoot.innerHTML = `
+      <style>${iPIXELCardStyles}
+        .text-row { display: flex; gap: 8px; margin-bottom: 16px; }
+        .text-row .text-input { flex: 1; }
+        .send-btn { min-width: 84px; }
+        .hint { font-size: 0.75em; opacity: 0.6; margin: -8px 0 16px; }
+        .error { color: var(--error-color, #db4437); font-size: 0.8em; margin-top: 8px; }
+        .note { font-size: 0.75em; opacity: 0.6; margin-top: 4px; }
+      </style>
+      <ha-card>
+        <div class="card-content">
+          <div class="text-row">
+            <input type="text" class="text-input" id="text-input"
+                   placeholder="Text to show on the matrix"
+                   maxlength="120">
+            <button class="btn btn-primary send-btn" id="send-btn">Send</button>
           </div>
-        </div>
-        <div>
-          <div class="section-title">Rainbow Mode</div>
+
+          <div class="two-col">
+            <div>
+              <div class="section-title">Effect</div>
+              <div class="control-row">
+                <select class="dropdown" id="text-effect">
+                  ${EFFECTS.map(e => `<option value="${e.value}">${e.label}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+            <div>
+              <div class="section-title">Font size</div>
+              <div class="control-row">
+                <select class="dropdown" id="font-size">
+                  ${FONT_SIZES.map(s => `<option value="${s.value}">${s.label}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="section-title">Speed</div>
+          <div class="control-row">
+            ${renderSlider({ id: 'text-speed', min: 0, max: 100, value: f.speed })}
+          </div>
+          <div class="hint">Scroll speed and blink rate.</div>
+
+          <div class="section-title">Colour</div>
+          <div class="control-row">
+            ${renderColorRow([
+              { id: 'text-color', label: 'Text', value: f.fgColor },
+              { id: 'bg-color', label: 'Background', value: f.bgColor },
+            ])}
+          </div>
+          ${rainbow ? '<div class="note">A rainbow mode is active, so the device cycles colours and ignores the text colour.</div>' : ''}
+
+          <div class="section-title">Rainbow</div>
           <div class="control-row">
             <select class="dropdown" id="rainbow-mode">
               ${RAINBOW_MODES.map(m => `<option value="${m.value}">${m.name}</option>`).join('')}
             </select>
           </div>
-        </div>
-      </div>
-      <div class="section-title">Speed</div>
-      <div class="control-row">
-        ${renderSlider({ id: 'text-speed', min: 1, max: 100, value: 50 })}
-      </div>
-      <div class="section-title">Font</div>
-      <div class="control-row">
-        <select class="dropdown" id="font-select">
-          <option value="VCR_OSD_MONO">VCR OSD Mono</option>
-          <option value="CUSONG">CUSONG</option>
-          <option value="LEGACY">Legacy (Bitmap)</option>
-        </select>
-      </div>
-      <div class="section-title">Colors</div>
-      <div class="control-row">
-        ${renderColorRow([
-          { id: 'text-color', label: 'Text', value: '#ff6600' },
-          { id: 'bg-color', label: 'Background', value: '#000000' },
-        ])}
-      </div>`;
-  }
 
-  _renderAmbientTab() {
-    return `
-      <div class="section-title">Ambient Effect</div>
-      ${renderGridSelector(this._ambientItems(), {
-        selected: this._selectedAmbient,
-        itemClass: 'effect-btn',
-        gridClass: 'effect-grid',
-        dataAttr: 'effect',
-      })}
-      <div class="section-title">Speed</div>
-      <div class="control-row">
-        ${renderSlider({ id: 'ambient-speed', min: 1, max: 100, value: 50 })}
-      </div>
-      <button class="btn btn-primary" id="apply-ambient-btn" style="width:100%;margin-top:8px;">Apply Effect</button>`;
-  }
-
-  _renderRhythmTab() {
-    return `
-      <div class="section-title">Visualization Style</div>
-      ${renderGridSelector(RHYTHM_STYLES, {
-        selected: this._selectedRhythmStyle,
-        itemClass: 'style-btn',
-        gridClass: 'style-grid',
-        dataAttr: 'style',
-      })}
-      <div class="section-title">Frequency Levels (0-15)</div>
-      <div class="rhythm-container">
-        ${this._rhythmLevels.map((level, i) => `
-          <div class="rhythm-band">
-            <label>${RHYTHM_BAND_LABELS[i]}</label>
-            <input type="range" class="rhythm-slider" data-band="${i}" min="0" max="15" value="${level}">
-            <span class="rhythm-val">${level}</span>
-          </div>`).join('')}
-      </div>
-      <button class="btn btn-primary" id="apply-rhythm-btn" style="width:100%;margin-top:12px;">Apply Rhythm</button>`;
-  }
-
-  _renderGfxTab() {
-    return `
-      <div class="section-title">GFX JSON Data</div>
-      <textarea class="gfx-textarea" id="gfx-json" placeholder='Enter GFX JSON data...
-Example:
-{
-  "width": 64,
-  "height": 16,
-  "pixels": [
-    {"x": 0, "y": 0, "color": "#ff0000"},
-    {"x": 1, "y": 0, "color": "#00ff00"}
-  ]
-}'></textarea>
-      <button class="btn btn-primary" id="apply-gfx-btn" style="width:100%;margin-top:12px;">Render GFX</button>
-      <div class="section-title" style="margin-top:16px;">Per-Character Colors</div>
-      <div class="input-row">
-        <input type="text" class="text-input" id="multicolor-text" placeholder="Text (e.g., HELLO)">
-      </div>
-      <div class="input-row">
-        <input type="text" class="text-input" id="multicolor-colors" placeholder="Colors (e.g., #ff0000,#00ff00,#0000ff)">
-      </div>
-      <button class="btn btn-primary" id="apply-multicolor-btn" style="width:100%;margin-top:8px;">Send Multicolor Text</button>`;
-  }
-
-  render() {
-    const testMode = this.isInTestMode();
-    if (!this._hass && !testMode) return;
-
-    const active = this._activeTab;
-
-    this.shadowRoot.innerHTML = `
-      <style>${iPIXELCardStyles}
-        .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
-        .input-row .text-input { flex: 1; }
-        select optgroup { font-weight: bold; color: var(--ipixel-text); }
-        select option { font-weight: normal; }
-        .effect-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
-        .style-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-        .effect-btn, .style-btn {
-          padding: 12px 8px;
-          border: 1px solid rgba(255,255,255,0.1);
-          background: rgba(255,255,255,0.05);
-          color: var(--ipixel-text);
-          border-radius: 8px;
-          cursor: pointer;
-          font-size: 0.75em;
-          text-align: center;
-          transition: all 0.2s ease;
-        }
-        .effect-btn:hover, .style-btn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2); }
-        .effect-btn.active, .style-btn.active { background: var(--ipixel-primary); border-color: var(--ipixel-primary); }
-        .rhythm-band { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-        .rhythm-band label { width: 50px; font-size: 0.75em; opacity: 0.8; }
-        .rhythm-slider { flex: 1; height: 4px; }
-        .rhythm-val { width: 20px; font-size: 0.75em; text-align: right; }
-        .rhythm-container { max-height: 300px; overflow-y: auto; padding-right: 8px; }
-        .gfx-textarea {
-          width: 100%; min-height: 150px;
-          background: rgba(0,0,0,0.3);
-          border: 1px solid rgba(255,255,255,0.1);
-          border-radius: 8px;
-          color: var(--ipixel-text);
-          font-family: monospace; font-size: 0.8em;
-          padding: 12px; resize: vertical;
-        }
-        .gfx-textarea:focus { outline: none; border-color: var(--ipixel-primary); }
-      </style>
-      <ha-card>
-        <div class="card-content">
-          ${renderTabs(TABS, active)}
-          ${renderPanel('text', active === 'text', this._renderTextTab())}
-          ${renderPanel('ambient', active === 'ambient', this._renderAmbientTab())}
-          ${renderPanel('rhythm', active === 'rhythm', this._renderRhythmTab())}
-          ${renderPanel('advanced', active === 'advanced', this._renderGfxTab())}
+          ${this._error ? `<div class="error">${this.escapeHtml(this._error)}</div>` : ''}
         </div>
       </ha-card>`;
 
+    this._restoreFormValues();
     this._attachListeners();
   }
 
-  _getTextFormValues() {
-    const $ = (id) => this.shadowRoot.getElementById(id);
-    return {
-      text: $('text-input')?.value || '',
-      effect: $('text-effect')?.value || 'fixed',
-      rainbowMode: parseInt($('rainbow-mode')?.value || '0'),
-      speed: parseInt($('text-speed')?.value || '50'),
-      fgColor: $('text-color')?.value || '#ff6600',
-      bgColor: $('bg-color')?.value || '#000000',
-      font: $('font-select')?.value || 'VCR_OSD_MONO',
-    };
-  }
-
-  _getAmbientFormValues() {
-    return {
-      effect: this._selectedAmbient || 'rainbow',
-      speed: parseInt(this.shadowRoot.getElementById('ambient-speed')?.value || '50'),
-    };
-  }
-
-  _getRhythmFormValues() {
-    return { style: this._selectedRhythmStyle || 0, levels: [...this._rhythmLevels] };
-  }
-
-  _getGfxFormValues() {
-    try { return JSON.parse(this.shadowRoot.getElementById('gfx-json')?.value || ''); }
-    catch { return null; }
-  }
-
-  _getMulticolorFormValues() {
-    const text = this.shadowRoot.getElementById('multicolor-text')?.value || '';
-    const colors = (this.shadowRoot.getElementById('multicolor-colors')?.value || '')
-      .split(',').map(c => c.trim()).filter(Boolean);
-    return { text, colors };
-  }
-
-  _updateTextPreview() {
-    const { text, effect, speed, fgColor, bgColor, font } = this._getTextFormValues();
-    updateDisplayState({ text: text || 'Preview', mode: 'text', effect, speed, fgColor, bgColor, font });
-  }
-
-  _updateAmbientPreview() {
-    const { effect, speed } = this._getAmbientFormValues();
-    updateDisplayState({ text: '', mode: 'ambient', effect, speed, fgColor: '#ffffff', bgColor: '#000000' });
-  }
-
   _attachListeners() {
-    attachTabs(this.shadowRoot, (id) => { this._activeTab = id; this.render(); });
+    const $ = (id) => this.shadowRoot.getElementById(id);
 
-    // Text tab
-    attachSlider(this.shadowRoot, 'text-speed', { onInput: () => this._updateTextPreview() });
-    ['text-effect', 'rainbow-mode', 'font-select'].forEach(id => {
-      this.shadowRoot.getElementById(id)?.addEventListener('change', () => this._updateTextPreview());
-    });
-    attachColorRow(this.shadowRoot, ['text-color', 'bg-color'], () => this._updateTextPreview());
-    this.shadowRoot.getElementById('text-input')?.addEventListener('input', () => this._updateTextPreview());
-    this.shadowRoot.getElementById('send-btn')?.addEventListener('click', () => this._sendText());
-
-    // Ambient tab
-    attachGridSelector(this.shadowRoot, '.effect-btn', {
-      onSelect: (v) => { this._selectedAmbient = v; this._updateAmbientPreview(); },
-      attr: 'effect',
-    });
-    attachSlider(this.shadowRoot, 'ambient-speed', { onInput: () => this._updateAmbientPreview() });
-    this.shadowRoot.getElementById('apply-ambient-btn')?.addEventListener('click', () => {
-      const { effect, speed } = this._getAmbientFormValues();
-      updateDisplayState({ text: '', mode: 'ambient', effect, speed, fgColor: '#ffffff', bgColor: '#000000' });
+    $('text-input')?.addEventListener('input', (e) => this._update({ text: e.target.value }));
+    $('text-effect')?.addEventListener('change', (e) => this._update({ effect: e.target.value }));
+    $('font-size')?.addEventListener('change', (e) => this._update({ fontSize: parseInt(e.target.value, 10) }));
+    $('rainbow-mode')?.addEventListener('change', (e) => {
+      this._update({ rainbowMode: parseInt(e.target.value, 10) || 0 });
+      this.render();
     });
 
-    // Rhythm tab
-    attachGridSelector(this.shadowRoot, '.style-btn', {
-      onSelect: (v) => { this._selectedRhythmStyle = parseInt(v); },
-      attr: 'style',
-    });
-    this.shadowRoot.querySelectorAll('.rhythm-slider').forEach(slider => {
-      slider.addEventListener('input', (e) => {
-        const band = parseInt(e.target.dataset.band);
-        const value = parseInt(e.target.value);
-        this._rhythmLevels[band] = value;
-        e.target.nextElementSibling.textContent = value;
-      });
-    });
-    this.shadowRoot.getElementById('apply-rhythm-btn')?.addEventListener('click', () => {
-      const { style, levels } = this._getRhythmFormValues();
-      updateDisplayState({ text: '', mode: 'rhythm', rhythmStyle: style, rhythmLevels: levels });
-      // set_rhythm_mode_advanced takes 0-15 levels as a comma-separated
-      // string, which is the range this card's sliders already use.
-      // (send_rhythm_eq expects 0-255 and rescales, so it is the wrong target.)
-      this.callService('ipixel_color', 'set_rhythm_mode_advanced', {
-        style, levels: levels.join(','),
-      });
+    attachSlider(this.shadowRoot, 'text-speed', {
+      onInput: (value) => this._update({ speed: value }),
     });
 
-    // GFX tab
-    this.shadowRoot.getElementById('apply-gfx-btn')?.addEventListener('click', () => {
-      const gfxData = this._getGfxFormValues();
-      if (!gfxData) { console.warn('iPIXEL: Invalid GFX JSON'); return; }
-      updateDisplayState({ text: '', mode: 'gfx', gfxData });
-      this.callService('ipixel_color', 'render_gfx', { data: gfxData });
+    attachColorRow(this.shadowRoot, ['text-color', 'bg-color'], (id, value) => {
+      this._update(id === 'text-color' ? { fgColor: value } : { bgColor: value });
     });
-    this.shadowRoot.getElementById('apply-multicolor-btn')?.addEventListener('click', () => {
-      const { text, colors } = this._getMulticolorFormValues();
-      if (!text || !colors.length) return;
-      updateDisplayState({ text, mode: 'multicolor', colors });
-      this.callService('ipixel_color', 'display_multicolor_text', {
-        text, colors: colors.map(c => this.hexToRgb(c)),
-      });
+
+    $('send-btn')?.addEventListener('click', () => this._send());
+    $('text-input')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this._send();
     });
   }
 
-  _sendText() {
-    const { text, effect, rainbowMode, speed, fgColor, bgColor, font } = this._getTextFormValues();
-    if (!text) return;
+  async _send() {
+    const f = this._form;
 
-    updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font, rainbowMode });
-    if (this.isInTestMode()) return;
-
-    if (this._config.entity && this._hass) {
-      this._hass.callService('text', 'set_value', { entity_id: this._config.entity, value: text });
+    if (!f.text) {
+      this._error = 'Enter some text first.';
+      this.render();
+      return;
     }
 
-    const backendFont = font === 'LEGACY' ? 'CUSONG' : font;
-    this.callService('ipixel_color', 'display_text', {
-      text, effect, speed,
-      color_fg: this.hexToRgb(fgColor),
-      color_bg: this.hexToRgb(bgColor),
-      font: backendFont,
-      rainbow_mode: rainbowMode,
+    this._error = '';
+
+    if (this._config.entity && this._hass && !this.isInTestMode()) {
+      try {
+        await this._hass.callService('text', 'set_value', {
+          entity_id: this._config.entity,
+          value: f.text,
+        });
+      } catch (err) {
+        console.warn('iPIXEL: could not update text entity', err);
+      }
+    }
+
+    await this.callService('ipixel_color', 'set_matrix_text', {
+      text: f.text,
+      effect: f.effect,
+      speed: f.speed,
+      font_size: f.fontSize,
+      color_fg: this.hexToRgb(f.fgColor),
+      color_bg: this.hexToRgb(f.bgColor),
+      rainbow_mode: f.rainbowMode,
     });
   }
 

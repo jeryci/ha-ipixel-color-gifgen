@@ -9,8 +9,9 @@ from bleak.exc import BleakError
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from .const import NOTIFY_UUID, WRITE_UUID
+from .const import NOTIFY_UUID, WRITE_UUID, TEXT_ANIM_SCROLL_LEFT, TEXT_ANIM_STATIC
 from .bluetooth.client import BluetoothClient
+from .device.text_protocol import build_native_text_payload
 from .device.commands import (
     make_power_command,
     make_brightness_command,
@@ -1682,6 +1683,128 @@ class iPIXELAPI:
         except Exception as err:
             _LOGGER.error("Error displaying ambient: %s", err)
             return False
+
+    async def display_text_matrix(
+        self,
+        text: str,
+        fg_color: tuple[int, int, int] = (255, 255, 255),
+        bg_color: tuple[int, int, int] = (0, 0, 0),
+        effect: str | int = "auto",
+        speed: int = 50,
+        rainbow_mode: int = 0,
+        font_size: int = 16,
+        buffer_slot: int = 1,
+    ) -> bool:
+        """Display text with automatic effect selection.
+
+        This is the single entry point for driving the panel's text mode. It
+        resolves the requested effect, scrolls right-to-left when the rendered
+        text is wider than the panel, and forwards colour, rainbow and speed to
+        the device so the animation runs on-device.
+
+        Args:
+            text: Text string to display.
+            fg_color: Text colour, RGB tuple.
+            bg_color: Background colour, RGB tuple.
+            effect: Effect name or device animation code. "auto" picks static
+                for text that fits and right-to-left scroll for text that does
+                not.
+            speed: Animation speed (0-100). Applies to scroll and blink rate.
+            rainbow_mode: Device rainbow/style mode (0-9). Non-zero cycles the
+                glyph colours and overrides fg_color on the device.
+            font_size: Glyph height; selects the record type (8/16/32).
+            buffer_slot: Device storage slot. 1-100 persists, 0x65 (101)
+                shows without saving.
+
+        Returns:
+            True if text was sent successfully.
+        """
+        from .device.text_protocol import (
+            TextStyle,
+            measure_text_width,
+            validate_animation,
+        )
+        from .device.commands import (
+            TYPE_TEXT,
+            _make_windows_from_payload,
+            get_data_mode_byte,
+            get_data_type_bytes,
+        )
+        from pypixelcolor.lib.transport.send_plan import SendPlan
+
+        text = text or " "
+        width, height = self._panel_dimensions()
+
+        if str(effect).strip().lower() == "auto":
+            panel_width = width or measure_text_width(text, font_size)
+            text_width = measure_text_width(text, font_size)
+            effect = (
+                TEXT_ANIM_SCROLL_LEFT
+                if text_width > panel_width
+                else TEXT_ANIM_STATIC
+            )
+            _LOGGER.debug(
+                "Auto effect: text %dpx vs panel %dpx -> effect %d",
+                text_width,
+                panel_width,
+                effect,
+            )
+
+        animation = validate_animation(effect, width, height)
+
+        style = TextStyle(
+            h_align=1,
+            v_align=1,
+            effect=animation,
+            speed=max(0, min(100, int(speed))),
+            rainbow_mode=max(0, min(9, int(rainbow_mode))),
+            fg_color=fg_color,
+            bg_color=bg_color,
+            bg_enabled=True,
+        )
+
+        try:
+            payload = build_native_text_payload(text, style, font_size, fg_color)
+        except ValueError as err:
+            _LOGGER.error("Cannot display text %r: %s", text, err)
+            return False
+
+        _LOGGER.info(
+            "Sending text %r (effect=%d, speed=%d, rainbow=%d, font=%d, %d bytes)",
+            text,
+            animation,
+            style.speed,
+            style.rainbow_mode,
+            font_size,
+            len(payload),
+        )
+
+        windows = _make_windows_from_payload(
+            payload,
+            buffer_slot,
+            get_data_type_bytes(TYPE_TEXT),
+            get_data_mode_byte(TYPE_TEXT),
+        )
+        result = await self._bluetooth.send_plan(SendPlan("matrix_text", windows))
+        if result.success:
+            return True
+
+        # The device can reject a native text payload (transfer timeout, stale
+        # slot). Fall back to the pypixelcolor renderer, which encodes the text
+        # as an animated image instead, so the text still reaches the panel.
+        _LOGGER.warning(
+            "Native text transfer failed (%s), retrying via image rendering",
+            getattr(result, "error", None) or "no ack from device",
+        )
+        return await self.display_text_pypixelcolor(
+            text=text,
+            color="".join(f"{c:02x}" for c in fg_color),
+            bg_color="".join(f"{c:02x}" for c in bg_color),
+            animation=animation,
+            speed=style.speed,
+            rainbow_mode=style.rainbow_mode,
+            matrix_height=font_size,
+        )
 
     async def display_native_text(
         self,

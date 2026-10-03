@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0]
+
+### Added
+- Single primary `ipixel-control-card` that switches between Text and GIF
+- Eight selectable bundled fonts, with per-font 1-bit thresholds and a
+  fallback chain so a missing font file degrades to a readable pixel font
+- Automatic scrolling: text is static when it fits the 64x16 panel and
+  scrolls left when it does not, with configurable effect and speed
+- `display_gif_data` service accepting a data URL or base64 GIF
+- Optional `device_id` on `display_local_gallery`, falling back to the first
+  loaded iPIXEL device
+- Browser-side GIF encoding and creation, stored in `localStorage`
+- GIF Library, Create and Mine tabs, plus a live `LEDMatrixRenderer` preview
+
+### Changed
+- Consolidates the previous seven cards and three transport modules into one
+  card, taking the frontend bundle from 182kb to 67kb
+- Ambient images now use the reliable GIF/image delivery path
+
 ## [0.1.0] - 2024-11-19
 
 ### Added

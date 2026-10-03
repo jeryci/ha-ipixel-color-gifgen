@@ -91,6 +91,70 @@ GLYPH_RECORD_TYPES: dict[int, tuple[int, int, int]] = {
     0x02: (16, 32, 2),
 }
 
+# Greyscale cutoff used when a font does not configure its own.
+DEFAULT_PIXEL_THRESHOLD = 96
+
+# Fonts the panel can render with. "file" is resolved against the integration's
+# assets/fonts folder first, then pypixelcolor's bundled fonts. Pixel fonts are
+# designed for 1-bit rendering and keep their crisp edges at a high threshold;
+# proportional fonts need a lower one or their thin strokes drop out.
+TEXT_FONTS: dict[str, dict[str, object]] = {
+    "pixeloid": {
+        "label": "Pixeloid",
+        "file": "PixeloidSans.ttf",
+        "threshold": 128,
+    },
+    "cusong": {
+        "label": "CUSONG (app default)",
+        "file": "CUSONG.ttf",
+        "threshold": 128,
+    },
+    "vcr": {
+        "label": "VCR OSD Mono",
+        "file": "VCR_OSD_MONO.ttf",
+        "threshold": 128,
+    },
+    "simsun": {
+        "label": "SimSun",
+        "file": "SIMSUN.ttf",
+        "threshold": 128,
+    },
+    "arial": {
+        "label": "Arial",
+        "file": "ARIAL.TTF",
+        "threshold": 96,
+    },
+    "arial_bold": {
+        "label": "Arial Nova Bold",
+        "file": "ArialNova-Bold.ttf",
+        "threshold": 96,
+    },
+    "google_sans": {
+        "label": "Google Sans",
+        "file": "GoogleSans-Medium.ttf",
+        "threshold": 96,
+    },
+    "cusong_italic": {
+        "label": "CUSONG Italic",
+        "file": "cusong16_zitidi.ttf",
+        "threshold": 128,
+    },
+}
+
+DEFAULT_TEXT_FONT = "cusong"
+
+# Fonts pypixelcolor accepts by name, for the image-rendering fallback.
+PYPXELCOLOR_FONT_ALIASES = {
+    "pixeloid": "SIMSUN",
+    "cusong": "CUSONG",
+    "cusong_italic": "CUSONG",
+    "vcr": "VCR_OSD_MONO",
+    "simsun": "SIMSUN",
+    "arial": "SIMSUN",
+    "arial_bold": "SIMSUN",
+    "google_sans": "SIMSUN",
+}
+
 
 class UnsafeAnimationError(ValueError):
     """Raised when a caller asks for an animation known to brick the device."""
@@ -261,41 +325,126 @@ def _reverse_bits(value: int) -> int:
     return value & 0xFF
 
 
-def _load_font(size: int):
+def _font_search_paths() -> list[Path]:
+    """Font files the panel can render with, most specific first."""
+    integration_root = Path(__file__).parent.parent
+    candidates = [
+        integration_root / "assets" / "fonts",
+        integration_root / "fonts",
+    ]
+    try:
+        import pypixelcolor
+
+        candidates.append(Path(pypixelcolor.__file__).parent / "fonts")
+    except (ImportError, AttributeError):
+        pass
+
+    return [path for path in candidates if path.is_dir()]
+
+
+def _resolve_font_file(font_name: str | None) -> Path | None:
+    """Find a font file by name across the bundled and pypixelcolor folders.
+
+    Matching is case-insensitive, because the fonts ship with inconsistent
+    casing and HA runs on a case-sensitive filesystem.
+    """
+    if not font_name:
+        return None
+
+    wanted = font_name.strip()
+    if not wanted:
+        return None
+    if not wanted.lower().endswith((".ttf", ".otf")):
+        wanted = f"{wanted}.ttf"
+
+    wanted_lower = wanted.lower()
+    for directory in _font_search_paths():
+        for found in sorted(directory.iterdir()):
+            if found.is_file() and found.name.lower() == wanted_lower:
+                return found
+    return None
+
+
+def resolve_font(font: str | None) -> tuple[str | None, int]:
+    """Resolve a font value to a concrete font file and threshold.
+
+    Falls back to the first bundled font that resolves, so a missing file
+    degrades to a readable pixel font instead of PIL's bitmap default.
+
+    Args:
+        font: Font value, one of the TEXT_FONTS keys, a filename, or None for
+            the built-in default.
+
+    Returns:
+        Tuple of (resolved filename or None, 1-bit threshold).
+    """
+    if font and font in TEXT_FONTS:
+        entry = TEXT_FONTS[font]
+        if _resolve_font_file(entry["file"]):
+            return str(entry["file"]), entry["threshold"]
+        _LOGGER.warning(
+            "Font file %s for %r is not installed, trying another font",
+            entry["file"],
+            font,
+        )
+
+    if font:
+        found = _resolve_font_file(font)
+        if found:
+            return found.name, DEFAULT_PIXEL_THRESHOLD
+
+    preferred = TEXT_FONTS[DEFAULT_TEXT_FONT]
+    if _resolve_font_file(preferred["file"]):
+        return str(preferred["file"]), preferred["threshold"]
+
+    for entry in TEXT_FONTS.values():
+        if _resolve_font_file(entry["file"]):
+            _LOGGER.warning(
+                "Default font is missing, falling back to %s", entry["file"]
+            )
+            return str(entry["file"]), entry["threshold"]
+
+    return None, DEFAULT_PIXEL_THRESHOLD
+
+
+def _load_font(size: int, font_name: str | None = None):
     """Load a bitmap-friendly font at the requested size."""
     from PIL import ImageFont
 
-    bundled_fonts_dir = Path(__file__).parent.parent / "assets" / "fonts"
-    candidates = [
-        bundled_fonts_dir / "PixeloidSans.ttf",
-        bundled_fonts_dir / "ARIAL.TTF",
-        bundled_fonts_dir / "GoogleSans-Medium.ttf",
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-    ]
-    for font_path in candidates:
-        try:
-            return ImageFont.truetype(str(font_path), size)
-        except (OSError, IOError):
-            continue
+    resolved, _ = resolve_font(font_name)
+    if resolved:
+        found = _resolve_font_file(resolved)
+        if found:
+            try:
+                return ImageFont.truetype(str(found), size)
+            except (OSError, IOError):
+                _LOGGER.debug("Could not load font %s at %dpx", resolved, size)
+
     return ImageFont.load_default()
 
 
 def render_glyph_bitmap(
     char: str,
     record_type: int,
-    pixel_threshold: int = 70,
+    pixel_threshold: int | None = None,
+    font_name: str | None = None,
 ) -> bytes:
     """Render one character into the fixed-size bitmap the device expects.
 
     Args:
         char: Single character to render.
         record_type: Glyph record type (key of GLYPH_RECORD_TYPES).
-        pixel_threshold: Greyscale cutoff for the 1-bit conversion.
+        pixel_threshold: Greyscale cutoff for the 1-bit conversion. Defaults to
+            the threshold configured for the resolved font.
+        font_name: Font value to render with (key of TEXT_FONTS or a filename).
 
     Returns:
         Packed bitmap, exactly height * bytes_per_row bytes.
     """
     width, height, row_bytes = GLYPH_RECORD_TYPES[record_type]
+
+    if pixel_threshold is None:
+        _, pixel_threshold = resolve_font(font_name)
 
     try:
         from PIL import Image, ImageDraw
@@ -303,7 +452,7 @@ def render_glyph_bitmap(
         _LOGGER.warning("Pillow not available, emitting blank glyph for %r", char)
         return bytes(height * row_bytes)
 
-    font = _load_font(height)
+    font = _load_font(height, font_name)
 
     img = Image.new("L", (width, height), 0)
     draw = ImageDraw.Draw(img)
@@ -331,6 +480,7 @@ def build_char_record(
     char: str,
     color: tuple[int, int, int] = (255, 255, 255),
     record_type: int = 0x02,
+    font_name: str | None = None,
 ) -> bytes:
     """Build a single glyph record.
 
@@ -340,6 +490,7 @@ def build_char_record(
         char: Single character.
         color: RGB colour tuple for this glyph.
         record_type: Glyph record type (key of GLYPH_RECORD_TYPES).
+        font_name: Font value to render with.
 
     Returns:
         Glyph record bytes.
@@ -353,11 +504,11 @@ def build_char_record(
     record = bytearray()
     record.append(record_type & 0xFF)
     record.extend(bytes(color))
-    record.extend(render_glyph_bitmap(char, record_type))
+    record.extend(render_glyph_bitmap(char, record_type, font_name=font_name))
     return bytes(record)
 
 
-def measure_text_width(text: str, font_size: int = 16) -> int:
+def measure_text_width(text: str, font_size: int = 16, font_name: str | None = None) -> int:
     """Estimate the rendered pixel width of a string.
 
     Used to decide whether the text needs to scroll. Each glyph occupies a
@@ -367,6 +518,7 @@ def measure_text_width(text: str, font_size: int = 16) -> int:
     Args:
         text: Text string to measure.
         font_size: Requested glyph height; selects the record type.
+        font_name: Font value to measure with.
 
     Returns:
         Estimated width in pixels.
@@ -380,7 +532,7 @@ def measure_text_width(text: str, font_size: int = 16) -> int:
     try:
         from PIL import ImageDraw, Image
 
-        font = _load_font(GLYPH_RECORD_TYPES[record_type][1])
+        font = _load_font(GLYPH_RECORD_TYPES[record_type][1], font_name)
         draw = ImageDraw.Draw(Image.new("L", (1, 1), 0))
         advance = draw.textlength(text, font=font)
         if advance > 0:
@@ -396,6 +548,7 @@ def build_native_text_payload(
     style: TextStyle | None = None,
     font_size: int = 16,
     color: tuple[int, int, int] = (255, 255, 255),
+    font_name: str | None = None,
 ) -> bytes:
     """Build a complete native text protocol payload.
 
@@ -404,6 +557,7 @@ def build_native_text_payload(
         style: Text style (defaults to a left-scrolling white style).
         font_size: Requested glyph height; selects the record type.
         color: Default text colour, used when no style is supplied.
+        font_name: Font value to render with.
 
     Returns:
         Complete text payload, ready to be wrapped in 0x0100 frames.
@@ -420,7 +574,9 @@ def build_native_text_payload(
                 "Text exceeds %d glyphs, truncating", MAX_TEXT_RECORDS
             )
             break
-        records.append(build_char_record(char, style.fg_color, record_type))
+        records.append(
+            build_char_record(char, style.fg_color, record_type, font_name)
+        )
 
     payload = bytearray(build_text_header(len(records), style))
     for record in records:

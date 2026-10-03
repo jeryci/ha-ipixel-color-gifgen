@@ -24,6 +24,17 @@ const EFFECTS = [
   { value: 'laser', label: 'Laser' },
 ];
 
+const FONTS = [
+  { value: 'cusong', label: 'CUSONG (app default)' },
+  { value: 'pixeloid', label: 'Pixeloid' },
+  { value: 'cusong_italic', label: 'CUSONG Italic' },
+  { value: 'vcr', label: 'VCR OSD Mono' },
+  { value: 'simsun', label: 'SimSun' },
+  { value: 'arial', label: 'Arial' },
+  { value: 'arial_bold', label: 'Arial Nova Bold' },
+  { value: 'google_sans', label: 'Google Sans' },
+];
+
 const RAINBOW_MODES = [
   { value: 0, name: 'Off (use text colour)' },
   { value: 1, name: 'Rainbow Wave' },
@@ -45,6 +56,7 @@ const FONT_SIZES = [
 
 const DEFAULTS = {
   text: '',
+  font: 'cusong',
   effect: 'auto',
   speed: 50,
   fgColor: '#ffffff',
@@ -72,6 +84,7 @@ export class iPIXELTextCard extends iPIXELCardBase {
       fgColor: this._form.fgColor,
       bgColor: this._form.bgColor,
       rainbowMode: this._form.rainbowMode,
+      font: this._form.font,
       fontSize: this._form.fontSize,
     });
     this._restoreFormValues();
@@ -82,6 +95,7 @@ export class iPIXELTextCard extends iPIXELCardBase {
     const f = this._form;
 
     if ($('text-input')) $('text-input').value = f.text;
+    if ($('text-font')) $('text-font').value = f.font;
     if ($('text-effect')) $('text-effect').value = f.effect;
     if ($('rainbow-mode')) $('rainbow-mode').value = String(f.rainbowMode);
     if ($('font-size')) $('font-size').value = String(f.fontSize);
@@ -121,10 +135,10 @@ export class iPIXELTextCard extends iPIXELCardBase {
 
           <div class="two-col">
             <div>
-              <div class="section-title">Effect</div>
+              <div class="section-title">Font</div>
               <div class="control-row">
-                <select class="dropdown" id="text-effect">
-                  ${EFFECTS.map(e => `<option value="${e.value}">${e.label}</option>`).join('')}
+                <select class="dropdown" id="text-font">
+                  ${FONTS.map(x => `<option value="${x.value}">${x.label}</option>`).join('')}
                 </select>
               </div>
             </div>
@@ -136,6 +150,13 @@ export class iPIXELTextCard extends iPIXELCardBase {
                 </select>
               </div>
             </div>
+          </div>
+
+          <div class="section-title">Effect</div>
+          <div class="control-row">
+            <select class="dropdown" id="text-effect">
+              ${EFFECTS.map(e => `<option value="${e.value}">${e.label}</option>`).join('')}
+            </select>
           </div>
 
           <div class="section-title">Speed</div>
@@ -172,6 +193,7 @@ export class iPIXELTextCard extends iPIXELCardBase {
     const $ = (id) => this.shadowRoot.getElementById(id);
 
     $('text-input')?.addEventListener('input', (e) => this._update({ text: e.target.value }));
+    $('text-font')?.addEventListener('change', (e) => this._update({ font: e.target.value }));
     $('text-effect')?.addEventListener('change', (e) => this._update({ effect: e.target.value }));
     $('font-size')?.addEventListener('change', (e) => this._update({ fontSize: parseInt(e.target.value, 10) }));
     $('rainbow-mode')?.addEventListener('change', (e) => {
@@ -219,6 +241,7 @@ export class iPIXELTextCard extends iPIXELCardBase {
       text: f.text,
       effect: f.effect,
       speed: f.speed,
+      font: f.font,
       font_size: f.fontSize,
       color_fg: this.hexToRgb(f.fgColor),
       color_bg: this.hexToRgb(f.bgColor),

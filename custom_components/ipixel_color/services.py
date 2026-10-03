@@ -72,6 +72,7 @@ SERVICE_SET_SPORT_DATA = "set_sport_data"
 SERVICE_DISPLAY_GALLERY_ASSET = "display_gallery_asset"
 SERVICE_DISPLAY_NATIVE_TEXT = "display_native_text"
 SERVICE_SET_MATRIX_TEXT = "set_matrix_text"
+SERVICE_DISPLAY_GIF_DATA = "display_gif_data"
 SERVICE_DISPLAY_BORDER = "display_border"
 SERVICE_QUERY_DEVICE_TIME = "query_device_time"
 SERVICE_QUERY_DEVICE_DATETIME = "query_device_datetime"
@@ -1154,6 +1155,7 @@ async def handle_set_matrix_text(call: ServiceCall) -> None:
     font_size = int(call.data.get("font_size", 16))
     buffer_slot = int(call.data.get("buffer_slot", 1))
     rainbow_mode = int(call.data.get("rainbow_mode", 0) or 0)
+    font = call.data.get("font") or None
 
     fg = _coerce_rgb(call.data.get("color_fg"), (255, 255, 255))
     bg = _coerce_rgb(call.data.get("color_bg"), (0, 0, 0))
@@ -1170,12 +1172,60 @@ async def handle_set_matrix_text(call: ServiceCall) -> None:
         rainbow_mode=rainbow_mode,
         font_size=font_size,
         buffer_slot=buffer_slot,
+        font=font,
     )
 
     if success:
         _LOGGER.info("Matrix text displayed: %r", text)
     else:
         _LOGGER.error("Failed to display matrix text: %r", text)
+
+
+async def handle_display_gif_data(call: ServiceCall) -> None:
+    """Handle display_gif_data service call.
+
+    Sends a GIF produced in the browser straight to the panel, so generated and
+    uploaded animations do not need a public URL.
+    """
+    import base64
+    import binascii
+
+    api = get_api(call)
+
+    raw = call.data.get("gif_data", "")
+    buffer_slot = int(call.data.get("buffer_slot", 1) or 1)
+
+    payload = str(raw).strip()
+    if payload.startswith("data:"):
+        _, _, payload = payload.partition(",")
+    payload = payload.replace("\n", "").replace("\r", "").replace(" ", "")
+
+    if not payload:
+        _LOGGER.error("display_gif_data called without gif_data")
+        return
+
+    try:
+        gif_bytes = base64.b64decode(payload, validate=True)
+    except (binascii.Error, ValueError) as err:
+        _LOGGER.error("display_gif_data received invalid base64: %s", err)
+        return
+
+    if not gif_bytes.startswith(b"GIF"):
+        _LOGGER.error(
+            "display_gif_data expects a GIF, got %r",
+            gif_bytes[:3],
+        )
+        return
+
+    _LOGGER.info(
+        "Sending %d byte GIF to slot %d", len(gif_bytes), buffer_slot
+    )
+
+    success = await api.display_image_url_bytes(gif_bytes, buffer_slot)
+    if success:
+        _LOGGER.info("GIF displayed (%d bytes, slot %d)", len(gif_bytes), buffer_slot)
+    else:
+        _LOGGER.error("Failed to display GIF")
 
 
 async def handle_display_border(call: ServiceCall) -> None:
@@ -1519,6 +1569,8 @@ def async_setup_services(hass: HomeAssistant) -> None:
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_NATIVE_TEXT, handle_display_native_text)
     if not hass.services.has_service(DOMAIN, SERVICE_SET_MATRIX_TEXT):
         hass.services.async_register(DOMAIN, SERVICE_SET_MATRIX_TEXT, handle_set_matrix_text)
+    if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_GIF_DATA):
+        hass.services.async_register(DOMAIN, SERVICE_DISPLAY_GIF_DATA, handle_display_gif_data)
     if not hass.services.has_service(DOMAIN, SERVICE_DISPLAY_BORDER):
         hass.services.async_register(DOMAIN, SERVICE_DISPLAY_BORDER, handle_display_border)
     if not hass.services.has_service(DOMAIN, SERVICE_QUERY_DEVICE_TIME):

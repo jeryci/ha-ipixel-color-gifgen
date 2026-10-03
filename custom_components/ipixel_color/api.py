@@ -1694,6 +1694,7 @@ class iPIXELAPI:
         rainbow_mode: int = 0,
         font_size: int = 16,
         buffer_slot: int = 1,
+        font: str | None = None,
     ) -> bool:
         """Display text with automatic effect selection.
 
@@ -1715,11 +1716,13 @@ class iPIXELAPI:
             font_size: Glyph height; selects the record type (8/16/32).
             buffer_slot: Device storage slot. 1-100 persists, 0x65 (101)
                 shows without saving.
+            font: Font to render with (key of TEXT_FONTS or a font filename).
 
         Returns:
             True if text was sent successfully.
         """
         from .device.text_protocol import (
+            PYPXELCOLOR_FONT_ALIASES,
             TextStyle,
             measure_text_width,
             validate_animation,
@@ -1736,8 +1739,8 @@ class iPIXELAPI:
         width, height = self._panel_dimensions()
 
         if str(effect).strip().lower() == "auto":
-            panel_width = width or measure_text_width(text, font_size)
-            text_width = measure_text_width(text, font_size)
+            panel_width = width or measure_text_width(text, font_size, font)
+            text_width = measure_text_width(text, font_size, font)
             effect = (
                 TEXT_ANIM_SCROLL_LEFT
                 if text_width > panel_width
@@ -1764,14 +1767,15 @@ class iPIXELAPI:
         )
 
         try:
-            payload = build_native_text_payload(text, style, font_size, fg_color)
+            payload = build_native_text_payload(text, style, font_size, fg_color, font)
         except ValueError as err:
             _LOGGER.error("Cannot display text %r: %s", text, err)
             return False
 
         _LOGGER.info(
-            "Sending text %r (effect=%d, speed=%d, rainbow=%d, font=%d, %d bytes)",
+            "Sending text %r (font=%s, effect=%d, speed=%d, rainbow=%d, size=%d, %d bytes)",
             text,
+            font or "default",
             animation,
             style.speed,
             style.rainbow_mode,
@@ -1800,6 +1804,7 @@ class iPIXELAPI:
             text=text,
             color="".join(f"{c:02x}" for c in fg_color),
             bg_color="".join(f"{c:02x}" for c in bg_color),
+            font=PYPXELCOLOR_FONT_ALIASES.get(font or "", "CUSONG"),
             animation=animation,
             speed=style.speed,
             rainbow_mode=style.rainbow_mode,

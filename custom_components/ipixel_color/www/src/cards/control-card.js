@@ -1,791 +1,887 @@
 /**
  * iPIXEL Control Card
- * Unified control panel with preview, quick actions, and text/ambient controls
+ *
+ * The whole panel in one card: a Text tab for the native text protocol and a
+ * GIF tab for preconfigured, created and uploaded animations.
  */
 
 import { iPIXELCardBase } from '../base.js';
 import { iPIXELCardStyles } from '../styles.js';
-import { getDisplayState, updateDisplayState, isTestMode, setTestMode } from '../state.js';
+import { createStorage, getDisplayState, updateDisplayState } from '../state.js';
+import { encodeGif } from '../gif-encoder.js';
+import { LEDMatrixRenderer } from 'react-pixel-display/core';
 import {
-  textToPixels, textToScrollPixels,
-  textToPixelsCanvas, textToScrollPixelsCanvas, loadFont, isFontLoaded,
-  textToPixelsBdf, textToScrollPixelsBdf, loadBdfFont, isBdfFontLoaded, getHeightKey,
-  LEDMatrixRenderer, EFFECTS, EFFECT_CATEGORIES, configureFonts,
-} from 'react-pixel-display/core';
+  renderSlider, attachSlider,
+  renderColorRow, attachColorRow,
+  renderGridSelector, attachGridSelector,
+  renderTabs, attachTabs, renderPanel,
+} from '../components/index.js';
 
 const isHA = typeof window !== 'undefined' && (
   typeof window.hassConnection !== 'undefined' ||
   document.querySelector('home-assistant') !== null
 );
 
-if (isHA) {
-  configureFonts({
-    ttfResolver: (name) => `/hacsfiles/ipixel_color/fonts/${name}.ttf`,
-    bdfResolver: (_name, file) => `/hacsfiles/ipixel_color/fonts/${file || _name}`,
-  });
-} else if (typeof window !== 'undefined') {
-  const basePath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1);
-  configureFonts({ baseUrl: `${basePath}fonts` });
-}
+const GALLERY_BASE = isHA
+  ? '/ipixel_color/gallery'
+  : `${window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/') + 1)}gallery`;
 
-const rendererCache = new Map();
+const storedGifs = createStorage('iPIXEL_StoredGIFs', () => []);
+
+const TABS = [
+  { id: 'text', label: 'Text' },
+  { id: 'gif', label: 'GIF' },
+];
+
+const GIF_TABS = [
+  { id: 'library', label: 'Library' },
+  { id: 'create', label: 'Create' },
+  { id: 'mine', label: 'Mine' },
+];
+
+const EFFECTS = [
+  { value: 'auto', label: 'Auto (scroll only if too wide)' },
+  { value: 'static', label: 'Static' },
+  { value: 'scroll_left', label: 'Scroll right to left' },
+  { value: 'scroll_right', label: 'Scroll left to right' },
+  { value: 'blink', label: 'Blink' },
+  { value: 'breeze', label: 'Breeze' },
+  { value: 'snow', label: 'Snow' },
+  { value: 'laser', label: 'Laser' },
+];
+
+const FONTS = [
+  { value: 'cusong', label: 'CUSONG (app default)' },
+  { value: 'pixeloid', label: 'Pixeloid' },
+  { value: 'cusong_italic', label: 'CUSONG Italic' },
+  { value: 'vcr', label: 'VCR OSD Mono' },
+  { value: 'simsun', label: 'SimSun' },
+  { value: 'arial', label: 'Arial' },
+  { value: 'arial_bold', label: 'Arial Nova Bold' },
+  { value: 'google_sans', label: 'Google Sans' },
+];
+
+const RAINBOW_MODES = [
+  { value: 0, name: 'Off (use text colour)' },
+  { value: 1, name: 'Rainbow Wave' },
+  { value: 2, name: 'Rainbow Cycle' },
+  { value: 3, name: 'Rainbow Pulse' },
+  { value: 4, name: 'Rainbow Fade' },
+  { value: 5, name: 'Rainbow Chase' },
+  { value: 6, name: 'Rainbow Sparkle' },
+  { value: 7, name: 'Rainbow Gradient' },
+  { value: 8, name: 'Rainbow Theater' },
+  { value: 9, name: 'Rainbow Fire' },
+];
+
+const FONT_SIZES = [
+  { value: 8, label: '8px small' },
+  { value: 16, label: '16px medium' },
+  { value: 32, label: '32px large' },
+];
+
+const GIF_EFFECTS = [
+  { value: 'rainbow', name: 'Rainbow' },
+  { value: 'fire', name: 'Fire' },
+  { value: 'matrix', name: 'Matrix' },
+  { value: 'plasma', name: 'Plasma' },
+  { value: 'water', name: 'Water' },
+  { value: 'stars', name: 'Stars' },
+];
+
+const GIF_TEXT_DEFAULTS = {
+  text: '',
+  font: 'cusong',
+  fontSize: 16,
+  effect: 'auto',
+  speed: 50,
+  fgColor: '#ffffff',
+  bgColor: '#000000',
+  rainbowMode: 0,
+};
+
+const GIF_DEFAULTS = {
+  effect: 'rainbow',
+  speed: 50,
+  frames: 12,
+};
 
 export class iPIXELControlCard extends iPIXELCardBase {
   constructor() {
     super();
-    this._renderer = null;
-    this._displayContainer = null;
-    this._lastState = null;
-    this._cachedResolution = null;
-    this._rendererId = null;
-    this._activeTab = 'quick';
-    this._selectedAmbient = 'rainbow';
-    this._rhythmLevels = new Array(11).fill(0);
-    this._selectedRhythmStyle = 0;
+    const saved = getDisplayState();
+    this._text = { ...GIF_TEXT_DEFAULTS, ...saved };
+    this._gif = { ...GIF_DEFAULTS };
+    this._tab = 'text';
+    this._gifTab = 'library';
+    this._error = '';
+    this._sending = null;
 
-    this._handleDisplayUpdate = (e) => {
-      this._updateDisplay(e.detail);
-    };
-    window.addEventListener('ipixel-display-update', this._handleDisplayUpdate);
+    this._manifest = null;
+    this._size = null;
+    this._filter = 'all';
+    this._renderer = null;
   }
+
+  getCardSize() { return 4; }
 
   connectedCallback() {
-    if (!this._rendererId) {
-      this._rendererId = `renderer_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    }
-    if (rendererCache.has(this._rendererId)) {
-      this._renderer = rendererCache.get(this._rendererId);
-    }
-    loadBdfFont('VCR_OSD_MONO', 16).then(() => {
-      if (this._lastState) this._updateDisplay(this._lastState);
-    });
-    loadBdfFont('VCR_OSD_MONO', 24);
-    loadBdfFont('VCR_OSD_MONO', 32);
-    loadBdfFont('CUSONG', 16);
-    loadBdfFont('CUSONG', 24);
-    loadBdfFont('CUSONG', 32);
-    loadFont('VCR_OSD_MONO');
-    loadFont('CUSONG');
-  }
-
-  _getFormHash() {
-    const state = getDisplayState();
-    return [
-      state.text,
-      state.effect,
-      state.speed,
-      state.fgColor,
-      state.bgColor,
-      state.mode,
-      state.font,
-      state.rainbowMode,
-      this._activeTab,
-      this._selectedAmbient,
-      this._selectedRhythmStyle,
-      this._rhythmLevels.join(',')
-    ].join('|');
+    this._loadManifest();
   }
 
   disconnectedCallback() {
+    this._renderer?.stop();
     super.disconnectedCallback();
-    window.removeEventListener('ipixel-display-update', this._handleDisplayUpdate);
-    if (this._renderer && this._rendererId) {
-      this._renderer.stop();
-      rendererCache.set(this._rendererId, this._renderer);
+  }
+
+  // ── Text ──────────────────────────────────────────────────────────────────
+
+  _updateText(patch) {
+    this._text = { ...this._text, ...patch };
+    updateDisplayState({ ...this._text, mode: 'text' });
+    this._restoreTextValues();
+  }
+
+  _restoreTextValues() {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+    const t = this._text;
+    if ($('text-input')) $('text-input').value = t.text;
+    if ($('text-font')) $('text-font').value = t.font;
+    if ($('text-font-size')) $('text-font-size').value = String(t.fontSize);
+    if ($('text-effect')) $('text-effect').value = t.effect;
+    if ($('rainbow-mode')) $('rainbow-mode').value = String(t.rainbowMode);
+    if ($('text-color')) $('text-color').value = t.fgColor;
+    if ($('bg-color')) $('bg-color').value = t.bgColor;
+    if ($('text-speed')) {
+      $('text-speed').value = t.speed;
+      $('text-speed').style.setProperty('--value', `${t.speed}%`);
+      const val = $('text-speed-val');
+      if (val) val.textContent = `${t.speed}`;
     }
   }
 
-  _getResolutionCached() {
-    const [sensorWidth, sensorHeight] = this.getResolution();
-    if (sensorWidth > 0 && sensorHeight > 0) {
-      this._cachedResolution = [sensorWidth, sensorHeight];
+  async _sendText() {
+    const t = this._text;
+
+    if (!t.text) {
+      this._error = 'Enter some text first.';
+      this.render();
+      return;
+    }
+
+    this._error = '';
+
+    if (this._config.entity && this._hass && !this.isInTestMode()) {
       try {
-        localStorage.setItem('iPIXEL_Resolution', JSON.stringify([sensorWidth, sensorHeight]));
-      } catch (e) { }
-      return this._cachedResolution;
-    }
-    try {
-      const saved = localStorage.getItem('iPIXEL_Resolution');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length === 2 && parsed[0] > 0 && parsed[1] > 0) {
-          this._cachedResolution = parsed;
-          return parsed;
-        }
-      }
-    } catch (e) { }
-    if (this._cachedResolution) return this._cachedResolution;
-    if (this._config?.width && this._config?.height) return [this._config.width, this._config.height];
-    return [sensorWidth || 64, sensorHeight || 16];
-  }
-
-  _updateDisplay(state) {
-    if (!this._displayContainer) return;
-    const [width, height] = this._getResolutionCached();
-    const isOn = this.isOn();
-    if (!this._renderer) {
-      this._renderer = new LEDMatrixRenderer(this._displayContainer, { width, height });
-      if (this._rendererId) rendererCache.set(this._rendererId, this._renderer);
-    } else {
-      this._renderer.setContainer(this._displayContainer);
-      if (this._renderer.width !== width || this._renderer.height !== height) {
-        this._renderer.setDimensions(width, height);
+        await this._hass.callService('text', 'set_value', {
+          entity_id: this._config.entity,
+          value: t.text,
+        });
+      } catch (err) {
+        console.warn('iPIXEL: could not update the text entity', err);
       }
     }
-    if (!isOn) {
-      this._renderer.setData([]);
-      this._renderer.setEffect('fixed', 50);
-      this._renderer.stop();
-      this._renderer.renderStatic();
-      return;
-    }
-    const text = state?.text || '';
-    const effect = state?.effect || 'fixed';
-    const speed = state?.speed || 50;
-    const fgColor = state?.fgColor || '#ff6600';
-    const bgColor = state?.bgColor || '#000000';
-    const mode = state?.mode || 'text';
-    const font = state?.font || 'VCR_OSD_MONO';
-    this._lastState = state;
-    let displayText = text;
-    let displayFg = fgColor;
-    if (mode === 'clock') {
-      const now = new Date();
-      displayText = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-      displayFg = '#00ff88';
-    } else if (mode === 'gif') {
-      displayText = 'GIF';
-      displayFg = '#ff44ff';
-    } else if (mode === 'rhythm') {
-      displayText = '***';
-      displayFg = '#44aaff';
-    }
-    const effectInfo = EFFECTS[effect];
-    const isAmbient = effectInfo?.category === 'ambient';
-    if (isAmbient) {
-      this._renderer.setData([], [], width);
-    } else {
-      const heightKey = getHeightKey(height);
-      const useBdfFont = font !== 'LEGACY' && isBdfFontLoaded(font, heightKey);
-      const useCanvasFont = font !== 'LEGACY' && isFontLoaded(font);
-      const getPixels = (text, w, h, fg, bg) => {
-        if (useBdfFont) {
-          const bdfPixels = textToPixelsBdf(text, w, h, fg, bg, font);
-          if (bdfPixels) return bdfPixels;
-        }
-        if (useCanvasFont) {
-          const canvasPixels = textToPixelsCanvas(text, w, h, fg, bg, font);
-          if (canvasPixels) return canvasPixels;
-        }
-        return textToPixels(text, w, h, fg, bg);
-      };
-      const getScrollPixels = (text, displayW, h, fg, bg) => {
-        if (useBdfFont) {
-          const bdfResult = textToScrollPixelsBdf(text, displayW, h, fg, bg, font);
-          if (bdfResult) return bdfResult;
-        }
-        if (useCanvasFont) {
-          const canvasResult = textToScrollPixelsCanvas(text, displayW, h, fg, bg, font);
-          if (canvasResult) return canvasResult;
-        }
-        return textToScrollPixels(text, displayW, h, fg, bg);
-      };
-      const textPixelWidth = useCanvasFont ? displayText.length * 10 : displayText.length * 6;
-      const needsScroll = (effect === 'scroll_ltr' || effect === 'scroll_rtl' || effect === 'bounce') && textPixelWidth > width;
-      if (needsScroll) {
-        const scrollResult = getScrollPixels(displayText, width, height, displayFg, bgColor);
-        const displayPixels = getPixels(displayText, width, height, displayFg, bgColor);
-        this._renderer.setData(displayPixels, scrollResult.pixels, scrollResult.width);
-      } else {
-        const pixels = getPixels(displayText, width, height, displayFg, bgColor);
-        this._renderer.setData(pixels);
-      }
-    }
-    this._renderer.setEffect(effect, speed);
-    if (effect === 'fixed') {
-      this._renderer.stop();
-      this._renderer.renderStatic();
-    } else {
-      this._renderer.start();
-    }
-  }
 
-  _getTestModeState() {
-    const demos = [
-      { text: 'iPIXEL', effect: 'scroll_ltr', speed: 40, fgColor: '#ff6600', bgColor: '#000000', mode: 'text', font: 'VCR_OSD_MONO' },
-      { text: 'Hello!', effect: 'rainbow_cycle', speed: 50, fgColor: '#00ff88', bgColor: '#000000', mode: 'text', font: 'VCR_OSD_MONO' },
-      { text: 'TEST', effect: 'fixed', speed: 50, fgColor: '#03a9f4', bgColor: '#111111', mode: 'text', font: 'VCR_OSD_MONO' },
-      { text: '', effect: 'rainbow', speed: 60, fgColor: '#ffffff', bgColor: '#000000', mode: 'ambient', font: 'VCR_OSD_MONO' },
-    ];
-    const idx = Math.floor(Date.now() / 10000) % demos.length;
-    return demos[idx];
-  }
-
-  _callService(service, data = {}) {
-    if (!this._hass) return;
-    if (this.isInTestMode()) {
-      console.info(`iPIXEL [Test Mode]: ipixel_color.${service}`, data);
-      return;
-    }
-    this.callService('ipixel_color', service, data);
-  }
-
-  _sendText() {
-    const text = this.shadowRoot.getElementById('control-text')?.value || '';
-    const effect = this.shadowRoot.getElementById('control-effect')?.value || 'fixed';
-    const speed = parseInt(this.shadowRoot.getElementById('control-speed')?.value || '50');
-    const fgColor = this.shadowRoot.getElementById('control-fg-color')?.value || '#ff6600';
-    const bgColor = this.shadowRoot.getElementById('control-bg-color')?.value || '#000000';
-    const font = this.shadowRoot.getElementById('control-font')?.value || 'VCR_OSD_MONO';
-    const rainbowMode = parseInt(this.shadowRoot.getElementById('control-rainbow')?.value || '0');
-    if (!text) return;
-    updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font, rainbowMode });
-    this._callService('display_text', {
-      text, effect, speed,
-      color_fg: this.hexToRgb(fgColor),
-      color_bg: this.hexToRgb(bgColor),
-      font: font === 'LEGACY' ? 'CUSONG' : font,
-      rainbow_mode: rainbowMode,
+    await this.callService('ipixel_color', 'set_matrix_text', {
+      text: t.text,
+      effect: t.effect,
+      speed: t.speed,
+      font: t.font,
+      font_size: t.fontSize,
+      color_fg: this.hexToRgb(t.fgColor),
+      color_bg: this.hexToRgb(t.bgColor),
+      rainbow_mode: t.rainbowMode,
     });
   }
 
-  _applyAmbient() {
-    const effect = this._selectedAmbient || 'rainbow';
-    const speed = parseInt(this.shadowRoot.getElementById('ambient-speed')?.value || '50');
-    updateDisplayState({ text: '', mode: 'ambient', effect, speed, fgColor: '#ffffff', bgColor: '#000000' });
-    this._callService('display_ambient', { effect, speed });
-  }
+  _renderTextTab() {
+    const t = this._text;
+    const rainbow = t.rainbowMode > 0;
 
-  _applyRhythm() {
-    const style = this._selectedRhythmStyle || 0;
-    const levels = this._rhythmLevels.join(',');
-    updateDisplayState({ text: '', mode: 'rhythm', rhythmStyle: style, rhythmLevels: this._rhythmLevels });
-    this._callService('set_rhythm_mode_advanced', { style, levels });
-  }
-
-  _buildQuickActions() {
-    const modes = [
-      { id: 'text', label: 'Text', icon: 'T' },
-      { id: 'clock', label: 'Clock', icon: '🕒' },
-      { id: 'gif', label: 'GIF', icon: '🎞' },
-      { id: 'ambient', icon: '✨', label: 'Ambient' },
-    ];
     return `
-      <div class="subsection">
-        <div class="subsection-title">Quick Actions</div>
-        <div class="button-grid button-grid-4">
-          ${modes.map(m => `
-            <button class="mode-btn" data-mode="${m.id}">
-              <div style="font-size:1.2em;margin-bottom:4px;">${m.icon}</div>
-              <div>${m.label}</div>
-            </button>
-          `).join('')}
-        </div>
+      <div class="input-row">
+        <input type="text" class="text-input" id="text-input"
+               placeholder="Text to show on the matrix" maxlength="120">
+        <button class="btn btn-primary" id="send-text-btn">Send</button>
       </div>
-      <div class="subsection">
-        <div class="subsection-title">Power</div>
-        <div class="button-grid button-grid-2">
-          <button class="btn btn-success" id="power-on-btn">Power ON</button>
-          <button class="btn btn-danger" id="power-off-btn">Power OFF</button>
-        </div>
-      </div>
-      <div class="subsection">
-        <div class="subsection-title">Update</div>
-        <div class="button-grid button-grid-1">
-          <button class="btn btn-primary" id="update-btn">Refresh Display</button>
-        </div>
-      </div>
-    `;
-  }
 
-  _buildTextTab() {
-    const state = getDisplayState();
-    const text = state.text || '';
-    const effect = state.effect || 'fixed';
-    const speed = state.speed || 50;
-    const fgColor = state.fgColor || '#ff6600';
-    const bgColor = state.bgColor || '#000000';
-    const font = state.font || 'VCR_OSD_MONO';
-    const rainbowMode = state.rainbowMode || 0;
-    return `
-      <div class="subsection">
-        <div class="subsection-title">Display Text</div>
-        <div class="input-row">
-          <input type="text" class="text-input" id="control-text" placeholder="Enter text to display..." value="${text}">
-          <button class="btn btn-primary" id="send-text-btn">Send</button>
-        </div>
-        <div class="two-col" style="margin-top:12px;">
-          <div>
-            <div class="subsection-title">Effect</div>
-            <select class="dropdown" id="control-effect">
-              ${Object.entries(EFFECTS).filter(([_, info]) => info.category === EFFECT_CATEGORIES.TEXT).map(([name, info]) => `<option value="${name}" ${name === effect ? 'selected' : ''}>${info.name}</option>`).join('')}
-            </select>
-          </div>
-          <div>
-            <div class="subsection-title">Rainbow Mode</div>
-            <select class="dropdown" id="control-rainbow">
-              ${[0,1,2,3,4,5,6,7,8,9].map(v => `<option value="${v}" ${v === rainbowMode ? 'selected' : ''}>${v === 0 ? 'None' : 'Mode ' + v}</option>`).join('')}
+      <div class="two-col">
+        <div>
+          <div class="section-title">Font</div>
+          <div class="control-row">
+            <select class="dropdown" id="text-font">
+              ${FONTS.map(f => `<option value="${f.value}">${f.label}</option>`).join('')}
             </select>
           </div>
         </div>
-        <div class="subsection-title" style="margin-top:12px;">Speed</div>
-        <div class="control-row">
-          <input type="range" class="slider" id="control-speed" min="1" max="100" value="${speed}">
-          <span class="slider-value" id="control-speed-val">${speed}</span>
-        </div>
-        <div class="subsection-title" style="margin-top:12px;">Font</div>
-        <div class="control-row">
-          <select class="dropdown" id="control-font">
-            <option value="VCR_OSD_MONO" ${font === 'VCR_OSD_MONO' ? 'selected' : ''}>VCR OSD Mono</option>
-            <option value="CUSONG" ${font === 'CUSONG' ? 'selected' : ''}>CUSONG</option>
-            <option value="LEGACY" ${font === 'LEGACY' ? 'selected' : ''}>Legacy (Bitmap)</option>
-          </select>
-        </div>
-        <div class="subsection-title" style="margin-top:12px;">Colors</div>
-        <div class="color-row">
-          <input type="color" class="color-picker" id="control-fg-color" value="${fgColor}">
-          <span style="font-size:0.85em;">Text</span>
-          <input type="color" class="color-picker" id="control-bg-color" value="${bgColor}">
-          <span style="font-size:0.85em;">Background</span>
+        <div>
+          <div class="section-title">Font size</div>
+          <div class="control-row">
+            <select class="dropdown" id="text-font-size">
+              ${FONT_SIZES.map(s => `<option value="${s.value}">${s.label}</option>`).join('')}
+            </select>
+          </div>
         </div>
       </div>
-    `;
+
+      <div class="section-title">Effect</div>
+      <div class="control-row">
+        <select class="dropdown" id="text-effect">
+          ${EFFECTS.map(e => `<option value="${e.value}">${e.label}</option>`).join('')}
+        </select>
+      </div>
+
+      <div class="section-title">Speed</div>
+      <div class="control-row">
+        ${renderSlider({ id: 'text-speed', min: 0, max: 100, value: t.speed })}
+      </div>
+      <div class="hint">Scroll speed and blink rate.</div>
+
+      <div class="section-title">Colour</div>
+      <div class="control-row">
+        ${renderColorRow([
+          { id: 'text-color', label: 'Text', value: t.fgColor },
+          { id: 'bg-color', label: 'Background', value: t.bgColor },
+        ])}
+      </div>
+      ${rainbow ? '<div class="note">A rainbow mode is active, so the panel cycles the colours and ignores the text colour.</div>' : ''}
+
+      <div class="section-title">Rainbow</div>
+      <div class="control-row">
+        <select class="dropdown" id="rainbow-mode">
+          ${RAINBOW_MODES.map(m => `<option value="${m.value}">${m.name}</option>`).join('')}
+        </select>
+      </div>`;
   }
 
-  _buildAmbientTab() {
-    const ambientEffects = Object.entries(EFFECTS)
-      .filter(([_, info]) => info.category === EFFECT_CATEGORIES.AMBIENT)
-      .map(([name, info]) => ({ value: name, name: info.name }));
-    const ambientState = getDisplayState();
-    const ambientEffect = ambientState.effect || 'rainbow';
-    const ambientSpeed = ambientState.speed || 50;
-    return `
-      <div class="subsection">
-        <div class="subsection-title">Ambient Effect</div>
-        <div class="button-grid button-grid-3">
-          ${ambientEffects.map(e => `
-            <button class="mode-btn ${ambientEffect === e.value ? 'active' : ''}" data-ambient="${e.value}">
-              <div style="font-size:1.1em;">${e.name}</div>
-            </button>
-          `).join('')}
-        </div>
-        <div class="subsection-title" style="margin-top:12px;">Speed</div>
-        <div class="control-row">
-          <input type="range" class="slider" id="ambient-speed" min="1" max="100" value="${ambientSpeed}">
-          <span class="slider-value" id="ambient-speed-val">${ambientSpeed}</span>
-        </div>
-        <button class="btn btn-primary" id="apply-ambient-btn" style="width:100%;margin-top:12px;">Apply Effect</button>
-      </div>
-    `;
+  _attachTextListeners() {
+    const $ = (id) => this.shadowRoot.getElementById(id);
+
+    $('text-input')?.addEventListener('input', (e) => this._updateText({ text: e.target.value }));
+    $('text-font')?.addEventListener('change', (e) => this._updateText({ font: e.target.value }));
+    $('text-font-size')?.addEventListener('change', (e) => this._updateText({ fontSize: parseInt(e.target.value, 10) }));
+    $('text-effect')?.addEventListener('change', (e) => this._updateText({ effect: e.target.value }));
+    $('rainbow-mode')?.addEventListener('change', (e) => {
+      this._updateText({ rainbowMode: parseInt(e.target.value, 10) || 0 });
+      this.render();
+    });
+
+    attachSlider(this.shadowRoot, 'text-speed', {
+      onInput: (value) => this._updateText({ speed: value }),
+    });
+
+    attachColorRow(this.shadowRoot, ['text-color', 'bg-color'], (id, value) => {
+      this._updateText(id === 'text-color' ? { fgColor: value } : { bgColor: value });
+    });
+
+    $('send-text-btn')?.addEventListener('click', () => this._sendText());
+    $('text-input')?.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') this._sendText();
+    });
   }
 
-  _buildRhythmTab() {
-    const RHYTHM_STYLES = [
-      { value: 0, name: 'Classic Bars' },
-      { value: 1, name: 'Mirrored Bars' },
-      { value: 2, name: 'Center Out' },
-      { value: 3, name: 'Wave Style' },
-      { value: 4, name: 'Particle Style' },
-    ];
-    const BAND_LABELS = ['32Hz', '64Hz', '125Hz', '250Hz', '500Hz', '1kHz', '2kHz', '4kHz', '8kHz', '12kHz', '16kHz'];
-    const rhythmState = getDisplayState();
-    const selectedStyle = rhythmState.rhythmStyle || 0;
-    const rhythmLevels = rhythmState.rhythmLevels || new Array(11).fill(0);
+  // ── GIF: library ──────────────────────────────────────────────────────────
+
+  async _loadManifest() {
+    if (this._manifest) return;
+    try {
+      const resp = await fetch(`${GALLERY_BASE}/manifest.json`);
+      this._manifest = await resp.json();
+    } catch (err) {
+      console.error('iPIXEL: could not load the GIF library', err);
+      this._manifest = {};
+    }
+    this._autoSelectSize();
+    this.render();
+  }
+
+  _autoSelectSize() {
+    if (!this._manifest || this._size) return;
+    const [w, h] = this.getResolution();
+    const sizeKey = `${w}x${h}`;
+    const sizes = Object.keys(this._manifest);
+    this._size = this._manifest[sizeKey] ? sizeKey : sizes[0] || null;
+  }
+
+  _sizes() {
+    if (!this._manifest) return [];
+    return Object.keys(this._manifest).sort((a, b) => {
+      const [aw, ah] = a.split('x').map(Number);
+      const [bw, bh] = b.split('x').map(Number);
+      return (ah - bh) || (aw - bw);
+    });
+  }
+
+  _libraryItems() {
+    const data = this._manifest?.[this._size];
+    const items = [];
+    if (data?.animations && this._filter !== 'eyes') {
+      data.animations.forEach((a) => items.push({ ...a, kind: 'animation' }));
+    }
+    if (data?.eyes && this._filter !== 'animations') {
+      data.eyes.forEach((e) => items.push({ ...e, kind: 'eye' }));
+    }
+    return items;
+  }
+
+  _renderLibraryTab() {
+    if (!this._manifest) return '<div class="empty-state">Loading library...</div>';
+
+    const [w, h] = this.getResolution();
+    const sizes = this._sizes();
+    const data = this._manifest[this._size];
+
+    const filters = [
+      { value: 'all', name: 'All' },
+      { value: 'animations', name: 'Animations', show: (data?.animations?.length || 0) > 0 },
+      { value: 'eyes', name: 'Eyes', show: (data?.eyes?.length || 0) > 0 },
+    ].filter((f) => f.show !== false);
+
     return `
-      <div class="subsection">
-        <div class="subsection-title">Visualization Style</div>
-        <div class="button-grid button-grid-3">
-          ${RHYTHM_STYLES.map(s => `
-            <button class="mode-btn ${selectedStyle === s.value ? 'active' : ''}" data-rhythm-style="${s.value}">
-              <div style="font-size:0.9em;">${s.name}</div>
-            </button>
-          `).join('')}
-        </div>
-        <div class="subsection-title" style="margin-top:12px;">Frequency Levels (0-15)</div>
-        <div class="rhythm-container">
-          ${rhythmLevels.map((level, i) => `
-            <div class="rhythm-band">
-              <label>${BAND_LABELS[i]}</label>
-              <input type="range" class="rhythm-slider" data-band="${i}" min="0" max="15" value="${level}">
-              <span class="rhythm-val">${level}</span>
-            </div>
-          `).join('')}
-        </div>
-        <button class="btn btn-primary" id="apply-rhythm-btn" style="width:100%;margin-top:12px;">Apply Rhythm</button>
+      <div class="section-title">Panel size</div>
+      ${renderGridSelector(
+        sizes.map((s) => ({ value: s, name: s, isMatch: s === `${w}x${h}` })),
+        {
+          selected: this._size,
+          itemClass: 'chip',
+          gridClass: 'chips',
+          dataAttr: 'size',
+          extraClass: (item) => (item.isMatch ? 'match' : ''),
+        }
+      )}
+
+      <div class="section-title" style="margin-top:12px;">Category</div>
+      ${renderGridSelector(filters, {
+        selected: this._filter,
+        itemClass: 'chip',
+        gridClass: 'chips',
+        dataAttr: 'filter',
+      })}
+
+      ${this._renderLibraryItems()}`;
+  }
+
+  _renderLibraryItems() {
+    const items = this._libraryItems();
+    if (items.length === 0) {
+      return '<div class="empty-state">No animations for this category.</div>';
+    }
+
+    return `<div class="gif-grid">${items.map((item) => {
+      const sending = this._sending === item.file;
+      const label = item.kind === 'eye'
+        ? `Eye ${item.side.toUpperCase()} #${item.num}`
+        : item.name || `#${item.num}`;
+      return `
+        <div class="gif-item${sending ? ' sending' : ''}" data-file="${item.file}"
+             title="${this.escapeHtml(label)}">
+          <img src="${GALLERY_BASE}/${this._size}/${item.file}" loading="lazy"
+               alt="${this.escapeHtml(label)}">
+          <div class="gif-label">${this.escapeHtml(label)}</div>
+          ${sending ? '<div class="gif-overlay">Sending...</div>' : ''}
+        </div>`;
+    }).join('')}</div>`;
+  }
+
+  async _sendLibraryGif(file) {
+    this._sending = file;
+    this._error = '';
+    this.render();
+
+    const data = { size: this._size, filename: file };
+    if (this._config.entity) data.entity_id = this._config.entity;
+    await this.callService('ipixel_color', 'display_local_gallery', data);
+
+    this._sending = null;
+    this.render();
+  }
+
+  // ── GIF: create ───────────────────────────────────────────────────────────
+
+  _initPreview() {
+    const container = this.shadowRoot.getElementById('gif-preview');
+    if (!container) return;
+    // Re-rendering replaces the container, so the renderer has to follow it.
+    if (this._renderer && this._rendererContainer === container) return;
+    this._renderer?.stop();
+    const [width, height] = this.getResolution();
+    this._renderer = new LEDMatrixRenderer(container, { width, height });
+    this._rendererContainer = container;
+  }
+
+  _gifFrames() {
+    const [width, height] = this.getResolution();
+    const total = Math.max(2, Math.min(30, parseInt(this._gif.frames, 10) || 12));
+    const frames = [];
+
+    for (let f = 0; f < total; f++) {
+      const buf = new Uint8Array(width * height * 3);
+      const put = (x, y, r, g, b) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        const i = (y * width + x) * 3;
+        buf[i] = r; buf[i + 1] = g; buf[i + 2] = b;
+      };
+
+      if (this._gif.effect === 'rainbow') {
+        for (let y = 0; y < height; y++) {
+          const hue = (f / total + (y / Math.max(height - 1, 1)) * 0.5) % 1;
+          const r = Math.round((Math.sin(hue * 6.283) + 1) * 127);
+          const g = Math.round((Math.sin(hue * 6.283 + 2.094) + 1) * 127);
+          const b = Math.round((Math.sin(hue * 6.283 + 4.188) + 1) * 127);
+          for (let x = 0; x < width; x++) put(x, y, r, g, b);
+        }
+      } else if (this._gif.effect === 'fire') {
+        for (let y = 0; y < height; y++) {
+          const t = (y + f * 1.5) % height;
+          const i = Math.round((1 - t / Math.max(height - 1, 1)) * 255);
+          for (let x = 0; x < width; x++) {
+            put(x, y, i, Math.round(i * 0.35), Math.round(i * 0.08));
+          }
+        }
+      } else if (this._gif.effect === 'plasma') {
+        const off = f * 0.4;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const v = (Math.sin(x * 0.16 + off) + Math.sin(y * 0.22 + off) + Math.sin((x + y) * 0.12 + off) + 3) / 6;
+            put(x, y,
+              Math.round(v * 255),
+              Math.round((Math.sin(x * 0.3 + off) + 1) * 127),
+              Math.round((Math.cos(y * 0.3 + off) + 1) * 127));
+          }
+        }
+      } else if (this._gif.effect === 'water') {
+        for (let y = 0; y < height; y++) {
+          const v = Math.sin(y * 0.4 + f * 0.55) * 0.5 + 0.5;
+          const i = Math.round(30 + 225 * v);
+          for (let x = 0; x < width; x++) {
+            put(x, y, Math.round(i * 0.2), Math.round(i * 0.75), i);
+          }
+        }
+      } else if (this._gif.effect === 'matrix') {
+        const cols = Math.max(4, Math.floor(width / 2));
+        for (let c = 0; c < cols; c++) {
+          const seed = (c * 37) % 11;
+          const head = (f * 2 + seed * 3) % (height + 6);
+          for (let t = 0; t < 5; t++) {
+            const y = head - t;
+            if (y < 0 || y >= height) continue;
+            const i = Math.round((1 - t / 5) * 255);
+            put(Math.floor(c * (width / cols)), y, 0, i, Math.round(i * 0.25));
+          }
+        }
+      } else {
+        const cols = Math.max(4, Math.floor(width / 3));
+        for (let c = 0; c < cols; c++) {
+          const phase = (f * 0.35 + c * 0.45) % (Math.PI * 2);
+          const v = (Math.sin(phase) + 1) * 0.5;
+          const i = Math.round(v * 255);
+          const x = Math.floor(c * (width / cols));
+          put(x, height - 1, i, i, i);
+          if (v > 0.7) put(x, height - 2, Math.round(i * 0.5), Math.round(i * 0.5), Math.round(i * 0.5));
+        }
+      }
+
+      frames.push(buf);
+    }
+
+    return frames;
+  }
+
+  _frameDelay() {
+    return Math.max(2, Math.round(20 - (this._gif.speed / 100) * 17));
+  }
+
+  _updatePreview() {
+    if (!this._renderer) return;
+    const [width, height] = this.getResolution();
+    const hex = this._gifFrames().map((buf) => {
+      const out = new Array(width * height);
+      for (let p = 0; p < out.length; p++) {
+        const i = p * 3;
+        out[p] = '#' + [buf[i], buf[i + 1], buf[i + 2]]
+          .map((v) => v.toString(16).padStart(2, '0'))
+          .join('');
+      }
+      return out;
+    });
+
+    if (this._renderer.playFrames) {
+      this._renderer.playFrames(hex, this._frameDelay() * 10);
+    } else if (hex.length > 0) {
+      this._renderer.setData(hex[0]);
+      this._renderer.setEffect('fixed', 50);
+      this._renderer.renderStatic();
+    }
+  }
+
+  _renderCreateTab() {
+    const g = this._gif;
+    return `
+      <div class="preview-box">
+        <div class="preview-screen" id="gif-preview"></div>
       </div>
-    `;
+
+      <div class="section-title">Animation</div>
+      ${renderGridSelector(GIF_EFFECTS, {
+        selected: g.effect,
+        itemClass: 'chip',
+        gridClass: 'chips',
+        dataAttr: 'effect',
+      })}
+
+      <div class="section-title" style="margin-top:12px;">Speed</div>
+      <div class="control-row">
+        ${renderSlider({ id: 'gif-speed', min: 0, max: 100, value: g.speed })}
+      </div>
+
+      <div class="section-title">Frames</div>
+      <div class="control-row">
+        ${renderSlider({ id: 'gif-frames', min: 2, max: 30, value: g.frames })}
+      </div>
+
+      <div class="button-grid button-grid-2" style="margin-top:8px;">
+        <button class="btn btn-secondary" id="gif-save-btn">Save</button>
+        <button class="btn btn-primary" id="gif-send-btn">Send</button>
+      </div>
+      <div class="hint">Saving keeps the animation in this browser so you can send it again later.</div>`;
+  }
+
+  _encodeGif() {
+    const [width, height] = this.getResolution();
+    return encodeGif(this._gifFrames(), width, height, this._frameDelay(), 0);
+  }
+
+  async _saveGif() {
+    const name = `${this._gif.effect}_${this._gifFrames}_f.gif`;
+    try {
+      const bytes = this._encodeGif();
+      const blob = new Blob([bytes], { type: 'image/gif' });
+      const reader = new FileReader();
+      const dataUrl = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+      });
+
+      const gifs = storedGifs.load();
+      const entry = { name, dataUrl, addedAt: Date.now() };
+      const existing = gifs.findIndex((g) => g.name === name);
+      if (existing >= 0) gifs[existing] = entry;
+      else gifs.push(entry);
+      storedGifs.save(gifs);
+
+      this._gifTab = 'mine';
+      this._error = '';
+      this.render();
+    } catch (err) {
+      console.error('iPIXEL: could not save the generated GIF', err);
+      this._error = 'Could not save the animation. Try fewer frames.';
+      this.render();
+    }
+  }
+
+  async _sendGeneratedGif() {
+    const bytes = this._encodeGif();
+    const name = `${this._gif.effect}_${this._gif.frames}_f.gif`;
+    const dataUrl = `data:image/gif;base64,${this._bytesToBase64(bytes)}`;
+
+    const gifs = storedGifs.load();
+    const entry = { name, dataUrl, addedAt: Date.now() };
+    const existing = gifs.findIndex((g) => g.name === name);
+    if (existing >= 0) gifs[existing] = entry;
+    else gifs.push(entry);
+    storedGifs.save(gifs);
+
+    this._error = '';
+    await this.callService('ipixel_color', 'display_gif_data', {
+      gif_data: dataUrl,
+    });
+  }
+
+  _bytesToBase64(bytes) {
+    let binary = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  _attachCreateListeners() {
+    attachGridSelector(this.shadowRoot, '[data-effect]', {
+      onSelect: (value) => {
+        this._gif = { ...this._gif, effect: value };
+        this._updatePreview();
+        this.render();
+      },
+      attr: 'effect',
+    });
+
+    attachSlider(this.shadowRoot, 'gif-speed', {
+      onInput: (value) => {
+        this._gif = { ...this._gif, speed: value };
+        this._updatePreview();
+      },
+    });
+
+    attachSlider(this.shadowRoot, 'gif-frames', {
+      onInput: (value) => {
+        this._gif = { ...this._gif, frames: value };
+        this._updatePreview();
+      },
+    });
+
+    this.shadowRoot.getElementById('gif-save-btn')?.addEventListener('click', () => this._saveGif());
+    this.shadowRoot.getElementById('gif-send-btn')?.addEventListener('click', () => this._sendGeneratedGif());
+  }
+
+  // ── GIF: mine ─────────────────────────────────────────────────────────────
+
+  _renderMineTab() {
+    const gifs = storedGifs.load();
+    return `
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-text">Drop a GIF here or tap to upload</div>
+        <input type="file" id="file-input" accept="image/gif,.gif" multiple>
+      </div>
+
+      ${gifs.length === 0
+        ? '<div class="empty-state">Nothing stored yet. Create one in the Create tab, or upload a GIF.</div>'
+        : `<div class="gif-grid">${gifs.map((g) => {
+            const sending = this._sending === g.name;
+            return `
+              <div class="gif-item stored${sending ? ' sending' : ''}" data-name="${this.escapeHtml(g.name)}"
+                   title="${this.escapeHtml(g.name)}">
+                <img src="${g.dataUrl}" loading="lazy" alt="${this.escapeHtml(g.name)}">
+                <div class="gif-label">${this.escapeHtml(g.name.replace(/\.gif$/i, ''))}</div>
+                <button class="gif-delete" data-delete="${this.escapeHtml(g.name)}">x</button>
+                ${sending ? '<div class="gif-overlay">Sending...</div>' : ''}
+              </div>`;
+          }).join('')}</div>`}`;
+  }
+
+  _storeFiles(files) {
+    const gifs = storedGifs.load();
+    let pending = 0;
+    let done = 0;
+
+    for (const file of files) {
+      if (!file.type.includes('gif') && !file.name.toLowerCase().endsWith('.gif')) continue;
+      pending++;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const entry = { name: file.name, dataUrl: reader.result, addedAt: Date.now() };
+        const existing = gifs.findIndex((g) => g.name === file.name);
+        if (existing >= 0) gifs[existing] = entry;
+        else gifs.push(entry);
+        if (++done === pending) {
+          storedGifs.save(gifs);
+          this.render();
+        }
+      };
+      reader.onerror = () => {
+        if (++done === pending) {
+          storedGifs.save(gifs);
+          this.render();
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  async _sendStoredGif(name) {
+    const item = storedGifs.load().find((g) => g.name === name);
+    if (!item) return;
+
+    this._sending = name;
+    this._error = '';
+    this.render();
+
+    await this.callService('ipixel_color', 'display_gif_data', {
+      gif_data: item.dataUrl,
+    });
+
+    this._sending = null;
+    this.render();
+  }
+
+  _attachMineListeners() {
+    const dropZone = this.shadowRoot.getElementById('drop-zone');
+    if (dropZone) {
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add('drag-over');
+      });
+      dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+      });
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove('drag-over');
+        if (e.dataTransfer?.files?.length) this._storeFiles(e.dataTransfer.files);
+      });
+      dropZone.addEventListener('click', () => {
+        this.shadowRoot.getElementById('file-input')?.click();
+      });
+    }
+
+    this.shadowRoot.getElementById('file-input')?.addEventListener('change', (e) => {
+      if (e.target.files?.length) this._storeFiles(e.target.files);
+    });
+
+    this.shadowRoot.querySelectorAll('.gif-item.stored').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        if (e.target.classList.contains('gif-delete')) return;
+        this._sendStoredGif(el.dataset.name);
+      });
+    });
+
+    this.shadowRoot.querySelectorAll('[data-delete]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const name = btn.dataset.delete;
+        storedGifs.save(storedGifs.load().filter((g) => g.name !== name));
+        this.render();
+      });
+    });
+  }
+
+  // ── Shell ─────────────────────────────────────────────────────────────────
+
+  _renderGifTab() {
+    return `
+      ${renderTabs(GIF_TABS, this._gifTab, 'data-gif-tab')}
+      ${renderPanel('library', this._gifTab === 'library', this._renderLibraryTab())}
+      ${renderPanel('create', this._gifTab === 'create', this._renderCreateTab())}
+      ${renderPanel('mine', this._gifTab === 'mine', this._renderMineTab())}`;
   }
 
   render() {
-    const testMode = this.isInTestMode();
-    if (!this._hass && !testMode) return;
-    const [width, height] = this._getResolutionCached();
-    const isOn = this.isOn();
-    const name = this._config.name || this.getEntity()?.attributes?.friendly_name || 'iPIXEL Display';
-    const sharedState = getDisplayState();
-    const modeEntity = this.getRelatedEntity('select', '_mode');
-    const currentMode = modeEntity?.state || sharedState.mode || 'text';
-    const currentText = sharedState.text || 'Hello';
-    const currentEffect = sharedState.effect || 'fixed';
-    const currentSpeed = sharedState.speed || 50;
-    const fgColor = sharedState.fgColor || '#ff6600';
-    const bgColor = sharedState.bgColor || '#000000';
-    const currentFont = sharedState.font || 'VCR_OSD_MONO';
-
-    const formHash = this._getFormHash();
-    if (formHash === this._lastFormHash && this.shadowRoot.querySelector('ha-card')) {
-      this._updateDisplay({
-        text: currentText,
-        effect: currentEffect,
-        speed: currentSpeed,
-        fgColor,
-        bgColor,
-        mode: currentMode,
-        font: currentFont
-      });
-      return;
-    }
-    this._lastFormHash = formHash;
-
-    let testModeBanner = '';
-    if (testMode) {
-      testModeBanner = `
-        <div class="test-mode-banner">
-          <div class="test-mode-header">
-            <span class="test-mode-label">Test Mode</span>
-            <button class="test-mode-toggle ${testMode ? 'active' : ''}" id="test-mode-toggle">${testMode ? 'ON' : 'OFF'}</button>
-          </div>
-          <div class="test-mode-desc">Preview display without a device</div>
-        </div>`;
-    } else {
-      testModeBanner = `
-        <div class="test-mode-hint">
-          <button class="test-mode-hint-btn" id="test-mode-toggle" title="Enable test mode for preview without a device">
-            <svg viewBox="0 0 24 24" width="14" height="14"><path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,6A6,6 0 0,0 6,12A6,6 0 0,0 12,18A6,6 0 0,0 18,12A6,6 0 0,0 12,6M12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15Z"/></svg>
-            Test
-          </button>
-        </div>`;
-    }
-
-    const textEffects = Object.entries(EFFECTS)
-      .filter(([_, info]) => info.category === EFFECT_CATEGORIES.TEXT)
-      .map(([name, info]) => `<option value="${name}">${info.name}</option>`)
-      .join('');
-    const ambientEffects = Object.entries(EFFECTS)
-      .filter(([_, info]) => info.category === EFFECT_CATEGORIES.AMBIENT)
-      .map(([name, info]) => `<option value="${name}">${info.name}</option>`)
-      .join('');
+    if (!this._hass && !this.isInTestMode()) return;
 
     this.shadowRoot.innerHTML = `
       <style>${iPIXELCardStyles}
-        .display-container { background: #000; border-radius: 8px; padding: 8px; border: 2px solid #222; }
-        .display-screen {
-          background: #000;
-          border-radius: 4px;
-          overflow: hidden;
-          min-height: 60px;
-        }
-        .display-footer { display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.75em; opacity: 0.6; }
-        .mode-badge { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 3px; text-transform: capitalize; }
-        .effect-badge { background: rgba(100,149,237,0.2); padding: 2px 6px; border-radius: 3px; margin-left: 4px; }
-        .test-mode-banner {
-          background: linear-gradient(135deg, rgba(255,152,0,0.15), rgba(255,87,34,0.1));
-          border: 1px solid rgba(255,152,0,0.3);
-          border-radius: 8px;
-          padding: 10px 12px;
-          margin-bottom: 12px;
-        }
-        .test-mode-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-        .test-mode-label { font-size: 0.85em; font-weight: 600; color: #ff9800; }
-        .test-mode-toggle { padding: 3px 10px; border: 1px solid rgba(255,152,0,0.4); border-radius: 12px; background: rgba(255,152,0,0.1); color: #ff9800; cursor: pointer; font-size: 0.75em; font-weight: 600; transition: all 0.2s; }
-        .test-mode-toggle.active { background: #ff9800; color: #000; }
-        .test-mode-desc { font-size: 0.75em; opacity: 0.7; }
-        .test-mode-hint { display: flex; justify-content: flex-end; margin-bottom: 8px; }
-        .test-mode-hint-btn { display: flex; align-items: center; gap: 4px; padding: 6px 12px; border: 1px solid rgba(255,152,0,0.3); border-radius: 10px; background: rgba(255,152,0,0.08); color: #ff9800; cursor: pointer; font-size: 0.75em; opacity: 0.85; transition: opacity 0.2s, background 0.2s; -webkit-tap-highlight-color: rgba(255,152,0,0.2); }
-        .test-mode-hint-btn:hover, .test-mode-hint-btn:active { opacity: 1; background: rgba(255,152,0,0.15); }
-        .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
-        .tab { flex: 1; padding: 10px 8px; border: none; background: rgba(255,255,255,0.05); color: var(--ipixel-text); cursor: pointer; border-radius: 8px; font-size: 0.8em; font-weight: 500; transition: all 0.2s ease; }
-        .tab:hover { background: rgba(255,255,255,0.1); }
-        .tab.active { background: var(--ipixel-primary); color: #fff; }
-        .tab-panel { display: block; }
-        .tab-panel[hidden] { display: none; }
-        .rhythm-band { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
-        .rhythm-band label { width: 50px; font-size: 0.75em; opacity: 0.8; }
-        .rhythm-slider { flex: 1; height: 4px; }
-        .rhythm-val { width: 20px; font-size: 0.75em; text-align: right; }
-        .rhythm-container { max-height: 300px; overflow-y: auto; padding-right: 8px; }
-        .gfx-textarea { width: 100%; min-height: 150px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--ipixel-text); font-family: monospace; font-size: 0.8em; padding: 12px; resize: vertical; }
-        .gfx-textarea:focus { outline: none; border-color: var(--ipixel-primary); }
-        .input-row { display: flex; gap: 8px; margin-bottom: 12px; }
+        .input-row { display: flex; gap: 8px; margin-bottom: 16px; }
         .input-row .text-input { flex: 1; }
+        .hint { font-size: 0.75em; opacity: 0.6; margin: -8px 0 16px; }
+        .note { font-size: 0.75em; opacity: 0.6; margin-top: 4px; }
+        .error { color: var(--error-color, #db4437); font-size: 0.8em; margin-top: 12px; }
+        .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+        .chip {
+          padding: 5px 12px; border: 1px solid rgba(255,255,255,0.15);
+          border-radius: 16px; background: rgba(255,255,255,0.05);
+          color: inherit; cursor: pointer; font-size: 0.75em; transition: all 0.2s;
+        }
+        .chip:hover { background: rgba(255,255,255,0.1); }
+        .chip.active { background: var(--ipixel-primary); border-color: var(--ipixel-primary); color: #fff; }
+        .chip.match { border-color: rgba(76,175,80,0.6); }
+        .gif-grid {
+          display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+          gap: 8px; margin-top: 8px;
+        }
+        .gif-item {
+          position: relative; background: #000; border: 2px solid rgba(255,255,255,0.1);
+          border-radius: 8px; overflow: hidden; cursor: pointer;
+          aspect-ratio: 1; display: flex; align-items: center; justify-content: center;
+          transition: transform 0.15s;
+        }
+        .gif-item:hover { border-color: var(--ipixel-primary); transform: scale(1.04); }
+        .gif-item.sending { opacity: 0.7; border-color: var(--ipixel-accent, #ff9800); }
+        .gif-item.stored { border-color: rgba(255,152,0,0.35); }
+        .gif-item img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+        .gif-label {
+          position: absolute; bottom: 0; left: 0; right: 0;
+          background: rgba(0,0,0,0.7); font-size: 0.6em; padding: 2px 4px;
+          text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .gif-overlay {
+          position: absolute; inset: 0; background: rgba(0,0,0,0.6);
+          display: flex; align-items: center; justify-content: center;
+          font-size: 0.7em; color: var(--ipixel-accent, #ff9800);
+        }
+        .gif-delete {
+          position: absolute; top: 2px; right: 2px; width: 18px; height: 18px;
+          background: rgba(244,67,54,0.85); border: none; border-radius: 50%;
+          color: #fff; font-size: 11px; line-height: 18px; text-align: center;
+          cursor: pointer; padding: 0; display: none;
+        }
+        .gif-item:hover .gif-delete { display: block; }
+        .preview-box {
+          background: #000; border-radius: 8px; padding: 8px;
+          border: 2px solid #222; margin-bottom: 12px;
+        }
+        .preview-screen { background: #000; border-radius: 4px; overflow: hidden; min-height: 60px; }
+        .drop-zone {
+          border: 2px dashed rgba(255,255,255,0.2); border-radius: 10px;
+          padding: 16px; text-align: center; margin-bottom: 12px;
+          transition: all 0.2s; cursor: pointer;
+        }
+        .drop-zone:hover, .drop-zone.drag-over {
+          border-color: var(--ipixel-primary); background: rgba(3,169,244,0.05);
+        }
+        .drop-zone input[type="file"] { display: none; }
+        .drop-text { font-size: 0.8em; opacity: 0.6; }
       </style>
       <ha-card>
         <div class="card-content">
-          ${testModeBanner}
-          <div class="card-header">
-            <div class="card-title">
-              <span class="status-dot ${isOn ? '' : 'off'}"></span>
-              ${name}
-              ${testMode ? '<span class="test-mode-badge">Demo</span>' : ''}
-            </div>
-            <button class="icon-btn ${isOn ? 'active' : ''}" id="power-btn">
-              <svg viewBox="0 0 24 24"><path d="M13,3H11V13H13V3M17.83,5.17L16.41,6.59C18.05,7.91 19,9.9 19,12A7,7 0 0,1 12,19A7,7 0 0,1 5,12C5,9.9 5.95,7.91 7.59,6.59L6.17,5.17C4.23,6.82 3,9.26 3,12A9,9 0 0,0 12,21A9,9 0 0,0 21,12C21,9.26 19.77,6.82 17.83,5.17Z"/></svg>
-            </button>
-          </div>
-          <div class="display-container">
-            <div class="display-screen" id="display-screen"></div>
-            <div class="display-footer">
-              <span>${width} x ${height}</span>
-              <span>
-                <span class="mode-badge">${isOn ? currentMode : 'Off'}</span>
-                ${isOn && currentEffect !== 'fixed' ? `<span class="effect-badge">${EFFECTS[currentEffect]?.name || currentEffect}</span>` : ''}
-              </span>
-            </div>
-          </div>
-          <div class="tabs" style="margin-top:12px;">
-            <button class="tab ${this._activeTab === 'quick' ? 'active' : ''}" data-tab="quick">Quick</button>
-            <button class="tab ${this._activeTab === 'text' ? 'active' : ''}" data-tab="text">Text</button>
-            <button class="tab ${this._activeTab === 'ambient' ? 'active' : ''}" data-tab="ambient">Ambient</button>
-            <button class="tab ${this._activeTab === 'rhythm' ? 'active' : ''}" data-tab="rhythm">Rhythm</button>
-            <button class="tab ${this._activeTab === 'gfx' ? 'active' : ''}" data-tab="gfx">GFX</button>
-          </div>
-          <div class="tab-panel" ${this._activeTab !== 'quick' ? 'hidden' : ''}>
-            ${this._buildQuickActions()}
-          </div>
-          <div class="tab-panel" ${this._activeTab !== 'text' ? 'hidden' : ''}>
-            ${this._buildTextTab()}
-          </div>
-          <div class="tab-panel" ${this._activeTab !== 'ambient' ? 'hidden' : ''}>
-            ${this._buildAmbientTab()}
-          </div>
-          <div class="tab-panel" ${this._activeTab !== 'rhythm' ? 'hidden' : ''}>
-            ${this._buildRhythmTab()}
-          </div>
+          ${renderTabs(TABS, this._tab)}
+          ${renderPanel('text', this._tab === 'text', this._renderTextTab())}
+          ${renderPanel('gif', this._tab === 'gif', this._renderGifTab())}
+          ${this._error ? `<div class="error">${this.escapeHtml(this._error)}</div>` : ''}
         </div>
       </ha-card>`;
 
-    this._displayContainer = this.shadowRoot.getElementById('display-screen');
-    const displayState = (testMode && !sharedState.text && sharedState.effect === 'fixed')
-      ? this._getTestModeState()
-      : {
-          text: currentText,
-          effect: currentEffect,
-          speed: currentSpeed,
-          fgColor: fgColor,
-          bgColor: bgColor,
-          mode: currentMode,
-          font: currentFont
-        };
-    this._updateDisplay(displayState);
-    this._attachListeners();
-    this._restoreFormValues();
+    if (this._tab === 'text') {
+      this._restoreTextValues();
+      this._attachTextListeners();
+    } else {
+      this._attachGifListeners();
+      if (this._gifTab === 'create') {
+        this._initPreview();
+        this._updatePreview();
+      }
+    }
+
+    attachTabs(this.shadowRoot, (id) => {
+      this._tab = id;
+      this._error = '';
+      this.render();
+    });
   }
 
-  _restoreFormValues() {
-    const state = getDisplayState();
-    const $ = (id) => this.shadowRoot.getElementById(id);
-    const textEl = $('control-text');
-    if (textEl && state.text) textEl.value = state.text;
-    const effectEl = $('control-effect');
-    if (effectEl && state.effect) effectEl.value = state.effect;
-    const rainbowEl = $('control-rainbow');
-    if (rainbowEl && state.rainbowMode !== undefined) rainbowEl.value = state.rainbowMode;
-    const speedEl = $('control-speed');
-    if (speedEl && state.speed) {
-      speedEl.value = state.speed;
-      const label = $('control-speed-val');
-      if (label) label.textContent = state.speed;
-    }
-    const fontEl = $('control-font');
-    if (fontEl && state.font) fontEl.value = state.font;
-    const fgEl = $('control-fg-color');
-    if (fgEl && state.fgColor) fgEl.value = state.fgColor;
-    const bgEl = $('control-bg-color');
-    if (bgEl && state.bgColor) bgEl.value = state.bgColor;
-    const ambientSpeedEl = $('ambient-speed');
-    if (ambientSpeedEl && state.speed) {
-      ambientSpeedEl.value = state.speed;
-      const label = $('ambient-speed-val');
-      if (label) label.textContent = state.speed;
-    }
-    this.shadowRoot.querySelectorAll('[data-ambient]').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.ambient === state.effect);
-    });
-    this.shadowRoot.querySelectorAll('[data-rhythm-style]').forEach(btn => {
-      btn.classList.toggle('active', parseInt(btn.dataset.rhythmStyle) === state.rhythmStyle);
-    });
-    if (state.rhythmLevels) {
-      this._rhythmLevels = [...state.rhythmLevels];
-      this.shadowRoot.querySelectorAll('.rhythm-slider').forEach(slider => {
-        const band = parseInt(slider.dataset.band);
-        if (state.rhythmLevels[band] !== undefined) {
-          slider.value = state.rhythmLevels[band];
-          const valSpan = slider.nextElementSibling;
-          if (valSpan) valSpan.textContent = state.rhythmLevels[band];
-        }
-      });
-    }
-  }
+  _attachGifListeners() {
+    attachTabs(this.shadowRoot, (id) => {
+      this._gifTab = id;
+      this.render();
+    }, 'data-gif-tab');
 
-  _attachListeners() {
-    const $ = (id) => this.shadowRoot.getElementById(id);
-    this.shadowRoot.querySelectorAll('[data-tab]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this._activeTab = btn.dataset.tab;
-        this.render();
+    if (this._gifTab === 'library') {
+      attachGridSelector(this.shadowRoot, '[data-size]', {
+        onSelect: (value) => {
+          this._size = value;
+          this._filter = 'all';
+          this.render();
+        },
+        attr: 'size',
       });
-    });
-    $('power-btn')?.addEventListener('click', () => {
-      if (this.isInTestMode()) {
-        this._testPowerState = !this._testPowerState;
-        this.render();
-        return;
-      }
-      let switchId = this._switchEntityId;
-      if (!switchId) {
-        const sw = this.getRelatedEntity('switch');
-        if (sw) { this._switchEntityId = sw.entity_id; switchId = sw.entity_id; }
-      }
-      if (switchId && this._hass?.states[switchId]) {
-        this._hass.callService('switch', 'toggle', { entity_id: switchId });
-      } else {
-        const allSwitches = Object.keys(this._hass?.states || {}).filter(e => e.startsWith('switch.'));
-        const baseName = this._config.entity?.replace(/^[^.]+\./, '').replace(/_?(text|display|gif_url)$/i, '') || '';
-        const match = allSwitches.find(s => s.includes(baseName.substring(0, 10)));
-        if (match) {
-          this._switchEntityId = match;
-          this._hass.callService('switch', 'toggle', { entity_id: match });
-        } else {
-          console.warn('iPIXEL: No switch found. Entity:', this._config.entity, 'Available:', allSwitches);
-        }
-      }
-    });
-    $('power-on-btn')?.addEventListener('click', () => {
-      const sw = this.getRelatedEntity('switch');
-      if (sw) this._hass.callService('switch', 'turn_on', { entity_id: sw.entity_id });
-    });
-    $('power-off-btn')?.addEventListener('click', () => {
-      const sw = this.getRelatedEntity('switch');
-      if (sw) this._hass.callService('switch', 'turn_off', { entity_id: sw.entity_id });
-    });
-    $('update-btn')?.addEventListener('click', () => this._callService('update_display'));
-    $('send-text-btn')?.addEventListener('click', () => this._sendText());
-    $('control-speed')?.addEventListener('input', (e) => {
-      const val = e.target.value;
-      const label = $('control-speed-val');
-      if (label) label.textContent = val;
-      const text = $('control-text')?.value || '';
-      const effect = $('control-effect')?.value || 'fixed';
-      const fgColor = $('control-fg-color')?.value || '#ff6600';
-      const bgColor = $('control-bg-color')?.value || '#000000';
-      const font = $('control-font')?.value || 'VCR_OSD_MONO';
-      updateDisplayState({ text, mode: 'text', effect, speed: parseInt(val), fgColor, bgColor, font });
-    });
-    $('control-text')?.addEventListener('input', (e) => {
-      const text = e.target.value || '';
-      const effect = $('control-effect')?.value || 'fixed';
-      const fgColor = $('control-fg-color')?.value || '#ff6600';
-      const bgColor = $('control-bg-color')?.value || '#000000';
-      const font = $('control-font')?.value || 'VCR_OSD_MONO';
-      const speed = parseInt($('control-speed')?.value || '50');
-      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
-    });
-    $('control-effect')?.addEventListener('change', (e) => {
-      const text = $('control-text')?.value || '';
-      const effect = e.target.value || 'fixed';
-      const fgColor = $('control-fg-color')?.value || '#ff6600';
-      const bgColor = $('control-bg-color')?.value || '#000000';
-      const font = $('control-font')?.value || 'VCR_OSD_MONO';
-      const speed = parseInt($('control-speed')?.value || '50');
-      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
-    });
-    $('control-rainbow')?.addEventListener('change', (e) => {
-      const text = $('control-text')?.value || '';
-      const effect = $('control-effect')?.value || 'fixed';
-      const fgColor = $('control-fg-color')?.value || '#ff6600';
-      const bgColor = $('control-bg-color')?.value || '#000000';
-      const font = $('control-font')?.value || 'VCR_OSD_MONO';
-      const speed = parseInt($('control-speed')?.value || '50');
-      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font, rainbowMode: parseInt(e.target.value || '0') });
-    });
-    $('control-font')?.addEventListener('change', (e) => {
-      const text = $('control-text')?.value || '';
-      const effect = $('control-effect')?.value || 'fixed';
-      const fgColor = $('control-fg-color')?.value || '#ff6600';
-      const bgColor = $('control-bg-color')?.value || '#000000';
-      const font = e.target.value || 'VCR_OSD_MONO';
-      const speed = parseInt($('control-speed')?.value || '50');
-      updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
-    });
-    ['control-fg-color', 'control-bg-color'].forEach(id => {
-      $(id)?.addEventListener('input', (e) => {
-        const text = $('control-text')?.value || '';
-        const effect = $('control-effect')?.value || 'fixed';
-        const fgColor = $('control-fg-color')?.value || '#ff6600';
-        const bgColor = $('control-bg-color')?.value || '#000000';
-        const font = $('control-font')?.value || 'VCR_OSD_MONO';
-        const speed = parseInt($('control-speed')?.value || '50');
-        updateDisplayState({ text, mode: 'text', effect, speed, fgColor, bgColor, font });
+      attachGridSelector(this.shadowRoot, '[data-filter]', {
+        onSelect: (value) => {
+          this._filter = value;
+          this.render();
+        },
+        attr: 'filter',
       });
-    });
-    $('test-mode-toggle')?.addEventListener('click', () => setTestMode(!isTestMode()));
-    this.shadowRoot.querySelectorAll('[data-mode]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const mode = btn.dataset.mode;
-        updateDisplayState({ mode });
-        if (mode === 'text') {
-          const modeEntity = this.getRelatedEntity('select', '_mode');
-          if (modeEntity) {
-            this._hass.callService('select', 'select_option', { entity_id: modeEntity.entity_id, option: 'textimage' });
-          }
-        } else if (mode === 'clock') {
-          this._callService('set_clock_mode', { style: 1, show_date: true, format_24: true });
-        } else if (mode === 'gif') {
-          const gifUrl = this.shadowRoot.getElementById('control-gif-url')?.value || '';
-          if (gifUrl) {
-            this._callService('display_image_url', { url: gifUrl });
-          } else {
-            this._callService('display_local_gallery', { size: '64x64', filename: 'yk_anim_en_64x64_1.gif', buffer_slot: 1 });
-          }
-        } else if (mode === 'ambient') {
-          this._selectedAmbient = 'rainbow';
-          this._callService('display_ambient', { effect: 'rainbow', speed: 50 });
-        }
+      this.shadowRoot.querySelectorAll('.gif-item[data-file]').forEach((el) => {
+        el.addEventListener('click', () => this._sendLibraryGif(el.dataset.file));
       });
-    });
-    this.shadowRoot.querySelectorAll('[data-ambient]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this._selectedAmbient = btn.dataset.ambient;
-        updateDisplayState({ mode: 'ambient', effect: btn.dataset.ambient });
-        this.render();
-      });
-    });
-    $('apply-ambient-btn')?.addEventListener('click', () => this._applyAmbient());
-    this.shadowRoot.querySelectorAll('[data-rhythm-style]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        this._selectedRhythmStyle = parseInt(btn.dataset.rhythmStyle);
-        updateDisplayState({ mode: 'rhythm', rhythmStyle: this._selectedRhythmStyle });
-        this.render();
-      });
-    });
-    this.shadowRoot.querySelectorAll('.rhythm-slider').forEach(slider => {
-      slider.addEventListener('input', (e) => {
-        const band = parseInt(e.target.dataset.band);
-        const value = parseInt(e.target.value);
-        this._rhythmLevels[band] = value;
-        e.target.nextElementSibling.textContent = value;
-        updateDisplayState({ mode: 'rhythm', rhythmLevels: [...this._rhythmLevels] });
-      });
-    });
-    $('apply-rhythm-btn')?.addEventListener('click', () => this._applyRhythm());
-    const ambientSpeed = $('ambient-speed');
-    if (ambientSpeed) {
-      ambientSpeed.addEventListener('input', (e) => {
-        const val = e.target.value;
-        const label = $('ambient-speed-val');
-        if (label) label.textContent = val;
-        updateDisplayState({ speed: parseInt(val) });
-      });
+    } else if (this._gifTab === 'create') {
+      this._attachCreateListeners();
+    } else {
+      this._attachMineListeners();
     }
   }
 

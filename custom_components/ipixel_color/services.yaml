@@ -1357,13 +1357,13 @@ display_gallery_asset:
           mode: box
 
 display_local_gallery:
-  name: Display Local Gallery Animation
-  description: Display a bundled gallery animation on the device (extracted from iPIXEL app assets)
+  name: Display Local Gallery
+  description: Display a bundled animation from the gallery that ships with the integration
   fields:
     device_id:
       name: Device
-      description: Target iPIXEL device
-      required: true
+      description: Target iPIXEL device. Defaults to the only/first iPIXEL device.
+      required: false
       selector:
         device:
           integration: ipixel_color
@@ -1489,6 +1489,30 @@ set_matrix_text:
               value: "8"
             - label: "Rainbow Fire"
               value: "9"
+    font:
+      name: Font
+      description: Glyph style used to render the text on the panel
+      required: false
+      default: "cusong"
+      selector:
+        select:
+          options:
+            - label: "CUSONG (app default)"
+              value: "cusong"
+            - label: "Pixeloid"
+              value: "pixeloid"
+            - label: "CUSONG Italic"
+              value: "cusong_italic"
+            - label: "VCR OSD Mono"
+              value: "vcr"
+            - label: "SimSun"
+              value: "simsun"
+            - label: "Arial"
+              value: "arial"
+            - label: "Arial Nova Bold"
+              value: "arial_bold"
+            - label: "Google Sans"
+              value: "google_sans"
     font_size:
       name: Font Size
       description: Glyph height. Larger text scrolls more often.
@@ -1503,6 +1527,38 @@ set_matrix_text:
               value: "16"
             - label: "32px (Large)"
               value: "32"
+    buffer_slot:
+      name: Buffer Slot
+      description: Device storage slot (1-100). Use 101 to display without saving.
+      required: false
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 101
+          mode: box
+
+display_gif_data:
+  name: Display GIF Data
+  description: >-
+    Send a GIF to the panel straight from its bytes. Accepts a data URL or bare
+    base64, which is how the card delivers generated and uploaded animations.
+  fields:
+    device_id:
+      name: Device
+      description: Target iPIXEL device
+      required: false
+      selector:
+        device:
+          integration: ipixel_color
+    gif_data:
+      name: GIF Data
+      description: The GIF as a data URL or base64
+      required: true
+      example: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
+      selector:
+        text:
+          multiline: true
     buffer_slot:
       name: Buffer Slot
       description: Device storage slot (1-100). Use 101 to display without saving.

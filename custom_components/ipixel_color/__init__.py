@@ -18,6 +18,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from .api import iPIXELAPI, iPIXELConnectionError, iPIXELTimeoutError
 from .const import DOMAIN, CONF_ADDRESS, CONF_NAME
 from .common import update_ipixel_display
+from .gif_library import async_register_websocket_api
 from .schedule import iPIXELScheduleManager, ScheduleItem
 from .services import async_setup_services
 
@@ -47,6 +48,10 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     # Register integration services
     async_setup_services(hass)
+
+    # Server-side GIF library, so animations saved on one device are visible
+    # from every other one.
+    async_register_websocket_api(hass)
 
     return True
 

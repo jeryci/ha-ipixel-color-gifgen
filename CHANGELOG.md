@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0]
+
+### Changed
+- **GIFs are now stored in Home Assistant, not in the browser.** They used to
+  live in `localStorage`, so a GIF created on a phone was invisible on every
+  other device. They are kept under `<config>/ipixel_color/gifs` with the
+  manifest in `.storage`, and every device now sees the same library.
+- GIFs already saved in a browser's `localStorage` are pushed to Home
+  Assistant the first time that device loads the card, so nothing is lost.
+- The card falls back to `localStorage` if the library cannot be reached, which
+  keeps older Home Assistant versions and the preview harness working.
+
+### Added
+- `ipixel_color/gif/list`, `/save`, `/delete` and `/get` websocket commands
+- Name and payload validation: path traversal and dotfile names are rejected
+  rather than sanitised, non-GIF data is refused, uploads are capped at 5MB and
+  the library holds 200 GIFs
+- Writes go to a temporary file and are renamed into place, so an interrupted
+  save cannot leave a truncated GIF under the real name
+
 ## [0.5.1]
 
 ### Fixed

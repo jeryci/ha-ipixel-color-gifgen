@@ -128,12 +128,164 @@ export class iPIXELControlCard extends iPIXELCardBase {
     this._size = null;
     this._filter = 'all';
     this._renderer = null;
+
+    // GIFs live on the Home Assistant host so every device sees the same
+    // library. Data URLs are cached per session to avoid refetching them.
+    this._myGifs = [];
+    this._gifUrls = new Map();
+    this._gifServer = true;
+    this._gifsLoaded = false;
   }
 
   getCardSize() { return 4; }
 
   connectedCallback() {
     this._loadManifest();
+    this._loadMyGifs();
+  }
+
+  /**
+   * Lovelace assigns hass after connectedCallback, so the library load is
+   * kicked off from here too.
+   */
+  set hass(hass) {
+    super.hass = hass;
+    this._loadMyGifs();
+  }
+
+  // ── GIF: server-side library ───────────────────────────────────────────────
+
+  /**
+   * Load the stored GIFs from Home Assistant.
+   *
+   * The library is treated as available optimistically and downgraded to
+   * localStorage only when the call actually fails, so this does not depend on
+   * the frontend having finished registering websocket commands.
+   *
+   * Safe to call more than once: the first call with a hass instance wins,
+   * which matters because connectedCallback runs before hass is assigned.
+   */
+  async _loadMyGifs() {
+    if (this._gifsLoaded || !this._hass) return;
+    this._gifsLoaded = true;
+
+    this._gifServer = true;
+
+    try {
+      let list = await this._hass.callWS({ type: 'ipixel_color/gif/list' });
+
+      // A GIF saved on this device before the library moved to Home Assistant
+      // still sits in localStorage. Push it up once so it is not lost, and so
+      // the other devices can see it too.
+      const legacy = storedGifs.load();
+      if (legacy.length > 0 && (list || []).length === 0) {
+        await Promise.all(legacy.map((g) => this._storeGif(g.name, g.dataUrl)));
+        storedGifs.clear();
+        list = await this._hass.callWS({ type: 'ipixel_color/gif/list' });
+      }
+
+      this._myGifs = list || [];
+    } catch (err) {
+      console.warn(
+        'iPIXEL: the GIF library is not available on the Home Assistant side, ' +
+        'falling back to this browser only',
+        err
+      );
+      this._gifServer = false;
+      this._myGifs = storedGifs.load();
+    }
+
+    await this._ensureGifUrls();
+    this.render();
+  }
+
+  async _ensureGifUrls() {
+    const pending = this._myGifs.filter((g) => !this._gifUrls.has(g.name));
+    if (pending.length === 0) return;
+
+    await Promise.all(pending.map(async (g) => {
+      const url = await this._gifDataUrl(g.name);
+      if (url) this._gifUrls.set(g.name, url);
+    }));
+  }
+
+  async _gifDataUrl(name) {
+    const cached = this._gifUrls.get(name);
+    if (cached) return cached;
+
+    const local = this._myGifs.find((g) => g.name === name);
+    if (!this._gifServer || local?.dataUrl) return local?.dataUrl || null;
+
+    try {
+      const res = await this._hass.callWS({
+        type: 'ipixel_color/gif/get',
+        name,
+      });
+      return res?.data_url || null;
+    } catch (err) {
+      console.error(`iPIXEL: could not read the stored GIF ${name}`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Save a GIF and reflect it in the rendered library.
+   *
+   * The list is updated here rather than at each call site, so a caller cannot
+   * store a GIF and leave the panel showing the old list.
+   */
+  async _storeGif(name, dataUrl) {
+    let saved = false;
+
+    if (this._gifServer) {
+      try {
+        await this._hass.callWS({
+          type: 'ipixel_color/gif/save',
+          name,
+          data: dataUrl,
+        });
+        saved = true;
+      } catch (err) {
+        console.error(`iPIXEL: could not store the GIF ${name}`, err);
+        this._error = `Could not store ${name}`;
+      }
+    } else {
+      const gifs = storedGifs.load().filter((g) => g.name !== name);
+      gifs.push({ name, dataUrl, addedAt: Date.now() });
+      storedGifs.save(gifs);
+      saved = true;
+    }
+
+    if (saved) {
+      this._gifUrls.set(name, dataUrl);
+      const existing = this._myGifs.findIndex((g) => g.name === name);
+      const entry = { name, addedAt: Date.now() };
+      if (existing >= 0) this._myGifs[existing] = entry;
+      else this._myGifs.unshift(entry);
+    }
+
+    return saved;
+  }
+
+  async _deleteGif(name) {
+    this._gifUrls.delete(name);
+
+    if (this._gifServer) {
+      try {
+        await this._hass.callWS({
+          type: 'ipixel_color/gif/delete',
+          name,
+        });
+      } catch (err) {
+        console.error(`iPIXEL: could not delete the GIF ${name}`, err);
+        this._error = `Could not delete ${name}`;
+      }
+    } else {
+      storedGifs.save(storedGifs.load().filter((g) => g.name !== name));
+    }
+
+    this._myGifs = this._myGifs.filter((g) => g.name !== name);
+    this.render();
   }
 
   disconnectedCallback() {
@@ -581,12 +733,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
         reader.readAsDataURL(blob);
       });
 
-      const gifs = storedGifs.load();
-      const entry = { name, dataUrl, addedAt: Date.now() };
-      const existing = gifs.findIndex((g) => g.name === name);
-      if (existing >= 0) gifs[existing] = entry;
-      else gifs.push(entry);
-      storedGifs.save(gifs);
+      await this._storeGif(name, dataUrl);
 
       this._gifTab = 'mine';
       this._error = '';
@@ -603,12 +750,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     const name = `${this._gif.effect}_${this._gif.frames}_f.gif`;
     const dataUrl = `data:image/gif;base64,${this._bytesToBase64(bytes)}`;
 
-    const gifs = storedGifs.load();
-    const entry = { name, dataUrl, addedAt: Date.now() };
-    const existing = gifs.findIndex((g) => g.name === name);
-    if (existing >= 0) gifs[existing] = entry;
-    else gifs.push(entry);
-    storedGifs.save(gifs);
+    await this._storeGif(name, dataUrl);
 
     this._error = '';
     await this.callService('ipixel_color', 'display_gif_data', {
@@ -656,7 +798,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
   // ── GIF: mine ─────────────────────────────────────────────────────────────
 
   _renderMineTab() {
-    const gifs = storedGifs.load();
+    const gifs = this._myGifs;
     return `
       <div class="drop-zone" id="drop-zone">
         <div class="drop-text">Drop a GIF here or tap to upload</div>
@@ -667,10 +809,11 @@ export class iPIXELControlCard extends iPIXELCardBase {
         ? '<div class="empty-state">Nothing stored yet. Create one in the Create tab, or upload a GIF.</div>'
         : `<div class="gif-grid">${gifs.map((g) => {
             const sending = this._sending === g.name;
+            const src = this._gifUrls.get(g.name) || g.dataUrl || '';
             return `
               <div class="gif-item stored${sending ? ' sending' : ''}" data-name="${this.escapeHtml(g.name)}"
                    title="${this.escapeHtml(g.name)}">
-                <img src="${g.dataUrl}" loading="lazy" alt="${this.escapeHtml(g.name)}">
+                <img src="${src}" loading="lazy" alt="${this.escapeHtml(g.name)}">
                 <div class="gif-label">${this.escapeHtml(g.name.replace(/\.gif$/i, ''))}</div>
                 <button class="gif-delete" data-delete="${this.escapeHtml(g.name)}">x</button>
                 ${sending ? '<div class="gif-overlay">Sending...</div>' : ''}
@@ -679,44 +822,34 @@ export class iPIXELControlCard extends iPIXELCardBase {
   }
 
   _storeFiles(files) {
-    const gifs = storedGifs.load();
-    let pending = 0;
-    let done = 0;
-
+    const gifs = [];
     for (const file of files) {
       if (!file.type.includes('gif') && !file.name.toLowerCase().endsWith('.gif')) continue;
-      pending++;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const entry = { name: file.name, dataUrl: reader.result, addedAt: Date.now() };
-        const existing = gifs.findIndex((g) => g.name === file.name);
-        if (existing >= 0) gifs[existing] = entry;
-        else gifs.push(entry);
-        if (++done === pending) {
-          storedGifs.save(gifs);
-          this.render();
-        }
-      };
-      reader.onerror = () => {
-        if (++done === pending) {
-          storedGifs.save(gifs);
-          this.render();
-        }
-      };
-      reader.readAsDataURL(file);
+      gifs.push(file);
     }
+    if (gifs.length === 0) return;
+
+    Promise.all(gifs.map((file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        await this._storeGif(file.name, reader.result);
+        resolve();
+      };
+      reader.onerror = () => resolve();
+      reader.readAsDataURL(file);
+    }))).then(() => this.render());
   }
 
   async _sendStoredGif(name) {
-    const item = storedGifs.load().find((g) => g.name === name);
-    if (!item) return;
+    const dataUrl = await this._gifDataUrl(name);
+    if (!dataUrl) return;
 
     this._sending = name;
     this._error = '';
     this.render();
 
     await this.callService('ipixel_color', 'display_gif_data', {
-      gif_data: item.dataUrl,
+      gif_data: dataUrl,
     });
 
     this._sending = null;
@@ -761,9 +894,7 @@ export class iPIXELControlCard extends iPIXELCardBase {
     this.shadowRoot.querySelectorAll('[data-delete]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        const name = btn.dataset.delete;
-        storedGifs.save(storedGifs.load().filter((g) => g.name !== name));
-        this.render();
+        this._deleteGif(btn.dataset.delete);
       });
     });
   }

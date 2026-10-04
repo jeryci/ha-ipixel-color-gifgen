@@ -43,6 +43,19 @@ PLATFORMS: list[Platform] = [
 # Frontend card registration flag
 FRONTEND_REGISTERED = False
 
+
+def _card_version() -> str:
+    """Return the bundled card's version, for cache busting.
+
+    Read from the bundle's mtime rather than a second hard-coded constant, so it
+    cannot drift out of step with what was actually built and shipped.
+    """
+    bundle = Path(__file__).parent / "www" / "ipixel-display-card.js"
+    try:
+        return str(int(bundle.stat().st_mtime))
+    except OSError:
+        return "0"
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the iPIXEL Color integration."""
 
@@ -62,36 +75,51 @@ async def _async_register_frontend(hass: HomeAssistant) -> None:
     if FRONTEND_REGISTERED:
         return
 
-    # Get the path to our www folder
+# Get the path to our www folder
     www_path = Path(__file__).parent / "www"
-    card_url = f"/{DOMAIN}/ipixel-display-card.js"
+    card_file = "ipixel-display-card.js"
+    card_url = f"/{DOMAIN}/{card_file}"
+
+    # The bundle is served with no cache headers, so a browser is free to apply
+    # heuristic caching and keep serving the copy it already has. Since the
+    # path never changes, a device that loaded the card before an update would
+    # keep running the old JavaScript indefinitely -- which is exactly how a
+    # device ends up on behaviour the Home Assistant side no longer has, such
+    # as reading GIFs from localStorage after they moved to the server. The
+    # query string is ignored by the static router, so adding the version here
+    # forces a fresh fetch on every device once per release.
+    card_resource_url = f"{card_url}?v={_card_version()}"
 
     # Register static path for serving the card
     gallery_path = Path(__file__).parent / "assets" / "gallery"
     gallery_url = f"/{DOMAIN}/gallery"
 
     await hass.http.async_register_static_paths([
-        StaticPathConfig(card_url, str(www_path / "ipixel-display-card.js"), cache_headers=False),
+        StaticPathConfig(card_url, str(www_path / card_file), cache_headers=False),
         StaticPathConfig(gallery_url, str(gallery_path), cache_headers=True),
     ])
 
-    resource = {"url": card_url, "type": "module"}
+    resource = {"url": card_resource_url, "type": "module"}
     try:
         from homeassistant.components.frontend import async_register_extra_js_url
-        await async_register_extra_js_url(hass, card_url, "ipixel")
+        await async_register_extra_js_url(hass, card_resource_url, "ipixel")
     except ImportError:
         hass.data.setdefault("lovelace_resources", [])
-        # Remove any stale HACS-style resource pointing to the same card
+        # Remove any stale HACS-style resource pointing at the same card,
+        # with or without a version query.
         hass.data["lovelace_resources"] = [
             r for r in hass.data["lovelace_resources"]
-            if not (isinstance(r, dict) and r.get("url", "").endswith("/ipixel-display-card.js"))
+            if not (
+                isinstance(r, dict)
+                and r.get("url", "").split("?")[0].endswith(f"/{DOMAIN}/{card_file}")
+            )
         ]
-        if not any(r.get("url") == card_url for r in hass.data["lovelace_resources"]):
+        if not any(r.get("url") == card_resource_url for r in hass.data["lovelace_resources"]):
             hass.data["lovelace_resources"].append(resource)
         hass.bus.async_fire("lovelace_updated")
 
     FRONTEND_REGISTERED = True
-    _LOGGER.info("iPIXEL Display Card frontend registered at %s", card_url)
+    _LOGGER.info("iPIXEL Display Card frontend registered at %s", card_resource_url)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

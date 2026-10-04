@@ -805,15 +805,22 @@ export class iPIXELControlCard extends iPIXELCardBase {
         <input type="file" id="file-input" accept="image/gif,.gif" multiple>
       </div>
 
+      ${this._gifServer ? '' : `<div class="note">GIFs are only stored in this browser right now, so other devices cannot see them. Restart Home Assistant, then reload this page.</div>`}
+
       ${gifs.length === 0
         ? '<div class="empty-state">Nothing stored yet. Create one in the Create tab, or upload a GIF.</div>'
         : `<div class="gif-grid">${gifs.map((g) => {
             const sending = this._sending === g.name;
             const src = this._gifUrls.get(g.name) || g.dataUrl || '';
+            // A missing thumbnail means the GIF could not be read back, so say
+            // so rather than rendering an empty tile that looks like a bug.
+            const thumb = src
+              ? `<img src="${src}" loading="lazy" alt="${this.escapeHtml(g.name)}">`
+              : `<div class="gif-thumb-missing" title="Could not load">?</div>`;
             return `
               <div class="gif-item stored${sending ? ' sending' : ''}" data-name="${this.escapeHtml(g.name)}"
                    title="${this.escapeHtml(g.name)}">
-                <img src="${src}" loading="lazy" alt="${this.escapeHtml(g.name)}">
+                ${thumb}
                 <div class="gif-label">${this.escapeHtml(g.name.replace(/\.gif$/i, ''))}</div>
                 <button class="gif-delete" data-delete="${this.escapeHtml(g.name)}">x</button>
                 ${sending ? '<div class="gif-overlay">Sending...</div>' : ''}
@@ -942,6 +949,11 @@ export class iPIXELControlCard extends iPIXELCardBase {
         .gif-item.sending { opacity: 0.7; border-color: var(--ipixel-accent, #ff9800); }
         .gif-item.stored { border-color: rgba(255,152,0,0.35); }
         .gif-item img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+        .gif-item .gif-thumb-missing {
+          width: 100%; height: 100%;
+          display: flex; align-items: center; justify-content: center;
+          color: var(--ipixel-muted, #888); font-size: 20px;
+        }
         .gif-label {
           position: absolute; bottom: 0; left: 0; right: 0;
           background: rgba(0,0,0,0.7); font-size: 0.6em; padding: 2px 4px;
